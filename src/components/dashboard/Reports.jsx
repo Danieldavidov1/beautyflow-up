@@ -2,14 +2,14 @@ import {
   TrendingUp, TrendingDown, DollarSign, Download, BarChart3,
   Maximize2, X, Award, AlertTriangle, Activity
 } from 'lucide-react';
-import { useState, useMemo, useCallback, useRef } from 'react'; // ✅ הוספנו את useRef
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   LineChart, Line, PieChart as RechartsPie, Pie, Cell,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer
 } from 'recharts';
 import { useToast } from '../../context/ToastContext';
-import { useAppContext } from '../../context/AppContext';
+import { useTransactions } from '../../hooks/useTransactions';
 
 // ✅ ייבוא GSAP
 import gsap from 'gsap';
@@ -19,7 +19,6 @@ const MONTHS_HE_SHORT = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יו
 const MONTHS_HE_FULL = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 const COLORS = ['#e5007e','#10b981','#f59e0b','#3b82f6','#8b5cf6','#ef4444','#f97316','#6b7280'];
 
-// ✅ Tooltip מותאם
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -51,7 +50,6 @@ const CustomPieTooltip = ({ active, payload }) => {
   );
 };
 
-// ✅ Pie Card
 const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
@@ -76,7 +74,6 @@ const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
             <Tooltip content={<CustomPieTooltip />} />
           </RechartsPie>
         </ResponsiveContainer>
-        {/* Legend */}
         <div className="space-y-2 mt-3">
           {data.map((item, idx) => {
             const pct = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0';
@@ -104,7 +101,6 @@ const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
   );
 };
 
-// ✅ Modal הרחבה
 const ExpandedModal = ({ title, data, onClose, colorOffset = 0 }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
@@ -171,97 +167,104 @@ const ExpandedModal = ({ title, data, onClose, colorOffset = 0 }) => {
 
 export default function Reports() {
   const { showToast } = useToast();
-  const { state: { incomes, expenses } } = useAppContext();
-  
-  const containerRef = useRef(null); // ✅ רפרנס GSAP
-  
-  // ✅ הפעלת אנימציית הכניסה
+
+  // ✅ Firestore במקום AppContext
+  const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
+  const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
+
+  const containerRef = useRef(null);
+
   useGSAP(() => {
     gsap.from('.gsap-card', {
-      y: 30,             
-      opacity: 0,        
-      duration: 0.5,     
-      stagger: 0.1,      
+      y: 30,
+      opacity: 0,
+      duration: 0.5,
+      stagger: 0.1,
       ease: 'power2.out',
-      clearProps: 'all'  
+      clearProps: 'all'
     });
   }, { scope: containerRef });
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [expandedChart, setExpandedChart] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview'); 
+  const [activeTab, setActiveTab] = useState('overview');
 
-  const years = useMemo(() => {
+  // ✅ מסך טעינה
+  if (loadingIncomes || loadingExpenses) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">טוען דוחות...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const years = (() => {
     const s = new Set();
     [...incomes, ...expenses].forEach(i => s.add(new Date(i.date).getFullYear()));
     const arr = Array.from(s).sort((a, b) => b - a);
     if (!arr.length) arr.push(new Date().getFullYear());
     return arr;
-  }, [incomes, expenses]);
+  })();
 
-  const monthlyData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => {
-      const inc = incomes
-        .filter(x => { const d = new Date(x.date); return d.getFullYear() === selectedYear && d.getMonth() === i; })
-        .reduce((s, x) => s + x.amount, 0);
-      const exp = expenses
-        .filter(x => { const d = new Date(x.date); return d.getFullYear() === selectedYear && d.getMonth() === i; })
-        .reduce((s, x) => s + x.amount, 0);
-      return {
-        month: i + 1,
-        monthName: MONTHS_HE_SHORT[i],
-        monthNameFull: MONTHS_HE_FULL[i],
-        income: inc,
-        expenses: exp,
-        profit: inc - exp
-      };
-    });
-  }, [incomes, expenses, selectedYear]);
+  const monthlyData = Array.from({ length: 12 }, (_, i) => {
+    const inc = incomes
+      .filter(x => { const d = new Date(x.date); return d.getFullYear() === selectedYear && d.getMonth() === i; })
+      .reduce((s, x) => s + x.amount, 0);
+    const exp = expenses
+      .filter(x => { const d = new Date(x.date); return d.getFullYear() === selectedYear && d.getMonth() === i; })
+      .reduce((s, x) => s + x.amount, 0);
+    return {
+      month: i + 1,
+      monthName: MONTHS_HE_SHORT[i],
+      monthNameFull: MONTHS_HE_FULL[i],
+      income: inc,
+      expenses: exp,
+      profit: inc - exp
+    };
+  });
 
-  const barData = useMemo(() =>
-    monthlyData.map(m => ({
-      name: m.monthName,
-      רווח: m.profit >= 0 ? m.profit : 0,
-      הפסד: m.profit < 0 ? Math.abs(m.profit) : 0,
-    })), [monthlyData]);
+  const barData = monthlyData.map(m => ({
+    name: m.monthName,
+    רווח: m.profit >= 0 ? m.profit : 0,
+    הפסד: m.profit < 0 ? Math.abs(m.profit) : 0,
+  }));
 
-  const expensesCategoryData = useMemo(() => {
+  const expensesCategoryData = (() => {
     const map = {};
     expenses.forEach(e => {
       if (new Date(e.date).getFullYear() === selectedYear)
         map[e.category] = (map[e.category] || 0) + e.amount;
     });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [expenses, selectedYear]);
+  })();
 
-  const incomesCategoryData = useMemo(() => {
+  const incomesCategoryData = (() => {
     const map = {};
     incomes.forEach(i => {
       if (new Date(i.date).getFullYear() === selectedYear)
         map[i.category] = (map[i.category] || 0) + i.amount;
     });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [incomes, selectedYear]);
+  })();
 
-  const totalIncome = useMemo(() => monthlyData.reduce((s, m) => s + m.income, 0), [monthlyData]);
-  const totalExpenses = useMemo(() => monthlyData.reduce((s, m) => s + m.expenses, 0), [monthlyData]);
+  const totalIncome = monthlyData.reduce((s, m) => s + m.income, 0);
+  const totalExpenses = monthlyData.reduce((s, m) => s + m.expenses, 0);
   const netProfit = totalIncome - totalExpenses;
   const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : 0;
-  const avgMonthlyIncome = useMemo(() => {
-    const active = monthlyData.filter(m => m.income > 0);
-    return active.length ? Math.round(totalIncome / active.length) : 0;
-  }, [monthlyData, totalIncome]);
 
-  const bestMonth = useMemo(() =>
-    [...monthlyData].filter(m => m.income > 0 || m.expenses > 0).sort((a, b) => b.profit - a.profit)[0],
-  [monthlyData]);
-  const worstMonth = useMemo(() =>
-    [...monthlyData].filter(m => m.income > 0 || m.expenses > 0).sort((a, b) => a.profit - b.profit)[0],
-  [monthlyData]);
+  const activeMonths = monthlyData.filter(m => m.income > 0);
+  const avgMonthlyIncome = activeMonths.length ? Math.round(totalIncome / activeMonths.length) : 0;
+
+  const monthsWithActivity = monthlyData.filter(m => m.income > 0 || m.expenses > 0);
+  const bestMonth = [...monthsWithActivity].sort((a, b) => b.profit - a.profit)[0];
+  const worstMonth = [...monthsWithActivity].sort((a, b) => a.profit - b.profit)[0];
 
   const hasData = totalIncome > 0 || totalExpenses > 0;
 
-  const handleExportYearly = useCallback(() => {
+  const handleExportYearly = () => {
     const data = [
       [`דוח שנתי ${selectedYear}`, '', '', ''],
       ['', '', '', ''],
@@ -288,7 +291,7 @@ export default function Reports() {
     link.download = `דוח_שנתי_${selectedYear}.csv`;
     link.click();
     showToast('הדוח ירד למחשב! 📊', 'success');
-  }, [monthlyData, totalIncome, totalExpenses, netProfit, expensesCategoryData, incomesCategoryData, selectedYear, showToast]);
+  };
 
   const tabs = [
     { id: 'overview', label: 'סקירה כללית' },
@@ -319,7 +322,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* ✅ 4 כרטיסי סיכום */}
+      {/* 4 כרטיסי סיכום */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
         <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
           <div className="flex items-center justify-between mb-2">
@@ -368,7 +371,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* ✅ החודש הטוב/גרוע */}
+      {/* החודש הטוב/גרוע */}
       {bestMonth && worstMonth && bestMonth.monthName !== worstMonth.monthName && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
           <div className="gsap-card bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 md:p-4 flex items-center gap-3 transition-colors">
@@ -392,7 +395,7 @@ export default function Reports() {
         </div>
       )}
 
-      {/* ✅ Tabs */}
+      {/* Tabs */}
       <div className="gsap-card flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mb-6 transition-colors">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -414,11 +417,9 @@ export default function Reports() {
         </div>
       ) : (
         <>
-          {/* ===== TAB: סקירה כללית ===== */}
+          {/* TAB: סקירה כללית */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-
-              {/* Line Chart - מגמות */}
               <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 transition-colors">
                 <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                   <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -443,7 +444,6 @@ export default function Reports() {
                 </ResponsiveContainer>
               </div>
 
-              {/* Bar Chart - רווח נקי */}
               <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 transition-colors">
                 <h2 className="text-base font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                   <BarChart3 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -468,7 +468,7 @@ export default function Reports() {
             </div>
           )}
 
-          {/* ===== TAB: ניתוח חודשי ===== */}
+          {/* TAB: ניתוח חודשי */}
           {activeTab === 'monthly' && (
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors">
               {/* כרטיסים - מובייל */}
@@ -553,7 +553,7 @@ export default function Reports() {
             </div>
           )}
 
-          {/* ===== TAB: קטגוריות ===== */}
+          {/* TAB: קטגוריות */}
           {activeTab === 'categories' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               {expensesCategoryData.length > 0 ? (
@@ -587,7 +587,7 @@ export default function Reports() {
         </>
       )}
 
-      {/* ✅ Modals */}
+      {/* Modals */}
       {expandedChart === 'expense' && expensesCategoryData.length > 0 && (
         <ExpandedModal title="התפלגות הוצאות 💸" data={expensesCategoryData}
           onClose={() => setExpandedChart(null)} colorOffset={0} />
