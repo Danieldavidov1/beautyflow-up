@@ -1,7 +1,9 @@
 import { TrendingUp, Plus, Trash2, Edit2, Search, SlidersHorizontal, X, ChevronDown, Tag, GripVertical, Download, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useToast } from '../../context/ToastContext';
-import { useAppContext } from '../../context/AppContext';
+import { useTransactions } from '../../hooks/useTransactions';
+import { db, auth } from '../../firebase';
+import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 // ✅ ייבוא GSAP
 import gsap from 'gsap';
@@ -19,21 +21,23 @@ const DEFAULT_CATEGORIES = [
 
 export default function Income() {
   const { showToast } = useToast();
-  const { state: { incomes }, dispatch } = useAppContext(); 
-  
+
+  // ✅ Firestore במקום AppContext
+  const { transactions: incomes, loading, addTransaction } = useTransactions('income');
+
   const formRef = useRef(null);
   const categoryRef = useRef(null);
-  const containerRef = useRef(null); // ✅ רפרנס חדש בשביל האנימציה
+  const containerRef = useRef(null);
 
-  // ✅ הפעלת אנימציית הכניסה
+  // ✅ אנימציית כניסה
   useGSAP(() => {
     gsap.from('.gsap-card', {
-      y: 30,             // החלקה עדינה מלמטה
-      opacity: 0,        // מתחיל שקוף
-      duration: 0.5,     // מהירות האנימציה
-      stagger: 0.1,      // עיכוב קל בין כרטיס לכרטיס
-      ease: 'power2.out',// תנועה טבעית
-      clearProps: 'all'  // מנקה סטייל כדי לא לדרוס עיצובים רספונסיביים/מצב לילה
+      y: 30,
+      opacity: 0,
+      duration: 0.5,
+      stagger: 0.1,
+      ease: 'power2.out',
+      clearProps: 'all'
     });
   }, { scope: containerRef });
 
@@ -172,21 +176,12 @@ export default function Income() {
 
   const handleUpdateCategory = useCallback(() => {
     if (!editingCat) return;
-    const oldName = categories[editingCat.index].name;
     setCategories(prev => prev.map((c, i) =>
       i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c
     ));
-    
-    if (oldName !== editingCat.name) {
-      const updatedIncomes = incomes.map(inc =>
-        inc.category === oldName ? { ...inc, category: editingCat.name } : inc
-      );
-      dispatch({ type: 'SET_INCOMES', payload: updatedIncomes });
-    }
-    
     setEditingCat(null);
     showToast('קטגוריה עודכנה! ✅', 'success');
-  }, [editingCat, categories, incomes, dispatch, showToast]);
+  }, [editingCat, categories, showToast]);
 
   const handleDeleteCategory = useCallback((index) => {
     const catName = categories[index].name;
@@ -241,7 +236,6 @@ export default function Income() {
     ]);
     const total = filteredIncomes.reduce((s, i) => s + i.amount, 0);
     rows.push(['', '"סה"כ"', total, '']);
-
     const csvContent = '\uFEFF' + [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -253,31 +247,44 @@ export default function Income() {
     showToast(`יוצאו ${filteredIncomes.length} הכנסות ✅`, 'success');
   }, [filteredIncomes, showToast]);
 
-  const handleSubmit = useCallback((e) => {
+  // ✅ שמירה ל-Firestore
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.source || !formData.amount) {
       showToast('נא למלא את כל השדות החובה', 'error');
       return;
     }
-    
-    if (editingId) {
-      dispatch({
-        type: 'UPDATE_INCOME',
-        payload: { ...formData, id: editingId, amount: Number(formData.amount) }
-      });
-      showToast('ההכנסה עודכנה בהצלחה! ✅', 'success');
-    } else {
-      dispatch({
-        type: 'ADD_INCOME',
-        payload: { id: Date.now(), ...formData, amount: Number(formData.amount) }
-      });
-      showToast('ההכנסה נוספה בהצלחה! 💰', 'success');
+
+    try {
+      if (editingId) {
+        // ✅ עדכון מסמך קיים ב-Firestore
+        const docRef = doc(db, 'transactions', editingId);
+        await updateDoc(docRef, {
+          source: formData.source,
+          amount: Number(formData.amount),
+          category: formData.category,
+          date: formData.date,
+        });
+        showToast('ההכנסה עודכנה בהצלחה! ✅', 'success');
+      } else {
+        // ✅ הוספת מסמך חדש ל-Firestore
+        await addTransaction({
+          source: formData.source,
+          amount: Number(formData.amount),
+          category: formData.category,
+          date: formData.date,
+        });
+        showToast('ההכנסה נוספה בהצלחה! 💰', 'success');
+      }
+
+      setFormData({ source: '', amount: '', category: categories[0]?.name || 'משכורת', date: new Date().toISOString().split('T')[0] });
+      setShowForm(false);
+      setEditingId(null);
+    } catch (error) {
+      console.error('שגיאה:', error);
+      showToast('שגיאה בשמירת ההכנסה', 'error');
     }
-    
-    setFormData({ source: '', amount: '', category: categories[0]?.name || 'משכורת', date: new Date().toISOString().split('T')[0] });
-    setShowForm(false);
-    setEditingId(null);
-  }, [formData, editingId, categories, dispatch, showToast]);
+  }, [formData, editingId, categories, addTransaction, showToast]);
 
   const handleEdit = useCallback((income) => {
     setFormData({ source: income.source, amount: income.amount.toString(), category: income.category, date: income.date });
@@ -285,12 +292,18 @@ export default function Income() {
     setShowForm(true);
   }, []);
 
-  const handleDelete = useCallback((id) => {
+  // ✅ מחיקה מ-Firestore
+  const handleDelete = useCallback(async (id) => {
     if (confirm('האם אתה בטוח שברצונך למחוק הכנסה זו?')) {
-      dispatch({ type: 'DELETE_INCOME', payload: id });
-      showToast('ההכנסה נמחקה בהצלחה', 'success');
+      try {
+        await deleteDoc(doc(db, 'transactions', id));
+        showToast('ההכנסה נמחקה בהצלחה', 'success');
+      } catch (error) {
+        console.error('שגיאה במחיקה:', error);
+        showToast('שגיאה במחיקת ההכנסה', 'error');
+      }
     }
-  }, [dispatch, showToast]);
+  }, [showToast]);
 
   const handleClearFilters = useCallback(() => {
     setFilters({ search: '', category: '', dateFrom: '', dateTo: '', amountFrom: '', amountTo: '', sortBy: 'date-desc' });
@@ -304,8 +317,19 @@ export default function Income() {
     if (showForm && formRef.current) scrollToRef(formRef);
   }, [categories, showForm, scrollToRef]);
 
+  // ✅ מסך טעינה
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">טוען הכנסות...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    // ✅ הוספנו את ה-ref של האנימציה לקונטיינר הראשי
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
 
       {/* כותרת */}
@@ -545,7 +569,7 @@ export default function Income() {
             <ChevronDown className={`w-4 h-4 transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
           </button>
         </div>
-        
+
         {showAdvancedFilters && (
           <div className="border-t border-gray-200 dark:border-gray-700 p-3 md:p-4 bg-gray-50 dark:bg-gray-800/50 transition-colors">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

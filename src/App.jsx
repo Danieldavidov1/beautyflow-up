@@ -1,5 +1,5 @@
 // src/App.jsx
-import { useState, useEffect } from 'react'; // ✅ הוספנו useEffect
+import { useState, useEffect } from 'react';
 import { AppProvider } from './context/AppContext';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -11,14 +11,18 @@ import Reports from './components/dashboard/Reports';
 import Goals from './components/dashboard/Goals';
 import Settings from './components/dashboard/Settings';
 import { ToastProvider } from './context/ToastContext';
+import Login from './components/Login';
+import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
 
   // ✅ מנגנון מצב לילה (Dark Mode) חכם
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    // בודק אם יש שמירה בזיכרון, ואם לא - בודק מה מוגדר במחשב של המשתמש
     const savedMode = localStorage.getItem('darkMode');
     if (savedMode !== null) return JSON.parse(savedMode);
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -33,6 +37,15 @@ function App() {
     }
     localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
   }, [isDarkMode]);
+
+  // ✅ מאזין למצב ההתחברות של המשתמש
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoadingAuth(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const toggleDarkMode = () => setIsDarkMode(prev => !prev);
 
@@ -57,15 +70,30 @@ function App() {
     }
   };
 
+  // ✅ בזמן טעינה - מציג מסך ריק
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <p className="text-gray-500 text-lg">טוען...</p>
+      </div>
+    );
+  }
+
+  // ✅ אם המשתמש לא מחובר - מציג Login
+  if (!user) {
+    return <Login />;
+  }
+
+  // ✅ אם מחובר - מציג האפליקציה הרגילה
   return (
     <AppProvider>
       <ToastProvider>
-        {/* ✅ הוספנו רקע כהה (dark:bg-gray-900) ועידון מעבר צבעים */}
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
-          <Header 
-            setIsOpen={setIsSidebarOpen} 
-            isDarkMode={isDarkMode} 
-            toggleDarkMode={toggleDarkMode} 
+          <Header
+            setIsOpen={setIsSidebarOpen}
+            isDarkMode={isDarkMode}
+            toggleDarkMode={toggleDarkMode}
+            user={user}
           />
           <Sidebar
             currentPage={currentPage}

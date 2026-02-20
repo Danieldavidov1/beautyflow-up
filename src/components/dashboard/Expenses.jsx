@@ -1,7 +1,9 @@
 import { Plus, TrendingDown, DollarSign, Calendar, Trash2, Download, Edit2, Search, SlidersHorizontal, X, ChevronDown, Tag, GripVertical, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useToast } from '../../context/ToastContext';
-import { useAppContext } from '../../context/AppContext'; 
+import { useTransactions } from '../../hooks/useTransactions';
+import { db } from '../../firebase';
+import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 // ✅ ייבוא ספריות האנימציה!
 import gsap from 'gsap';
@@ -20,21 +22,23 @@ const DEFAULT_CATEGORIES = [
 
 export default function Expenses() {
   const { showToast } = useToast();
-  const { state: { expenses }, dispatch } = useAppContext();
-  
+
+  // ✅ Firestore במקום AppContext
+  const { transactions: expenses, loading, addTransaction } = useTransactions('expense');
+
   const formRef = useRef(null);
   const categoryRef = useRef(null);
-  const containerRef = useRef(null); // ✅ רפרנס חדש בשביל האנימציה
+  const containerRef = useRef(null);
 
-  // ✅ הפעלת אנימציית הכניסה
+  // ✅ אנימציית כניסה
   useGSAP(() => {
     gsap.from('.gsap-card', {
-      y: 30,             // החלקה עדינה מלמטה
-      opacity: 0,        // מתחיל שקוף
-      duration: 0.5,     // מהירות האנימציה
-      stagger: 0.1,      // עיכוב קל בין כרטיס לכרטיס
-      ease: 'power2.out',// תנועה טבעית
-      clearProps: 'all'  // מנקה סטייל כדי לא לדרוס עיצובים רספונסיביים/מצב לילה
+      y: 30,
+      opacity: 0,
+      duration: 0.5,
+      stagger: 0.1,
+      ease: 'power2.out',
+      clearProps: 'all'
     });
   }, { scope: containerRef });
 
@@ -177,21 +181,12 @@ export default function Expenses() {
 
   const handleUpdateCategory = useCallback(() => {
     if (!editingCat) return;
-    const oldName = categories[editingCat.index].name;
     setCategories(prev => prev.map((c, i) =>
       i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c
     ));
-    
-    if (oldName !== editingCat.name) {
-      const updatedExpenses = expenses.map(exp =>
-        exp.category === oldName ? { ...exp, category: editingCat.name } : exp
-      );
-      dispatch({ type: 'SET_EXPENSES', payload: updatedExpenses });
-    }
-    
     setEditingCat(null);
     showToast('קטגוריה עודכנה! ✅', 'success');
-  }, [editingCat, categories, expenses, dispatch, showToast]);
+  }, [editingCat, categories, showToast]);
 
   const handleDeleteCategory = useCallback((index) => {
     const catName = categories[index].name;
@@ -257,31 +252,44 @@ export default function Expenses() {
     showToast(`יוצאו ${filteredExpenses.length} הוצאות ✅`, 'success');
   }, [filteredExpenses, showToast]);
 
-  const handleSubmit = useCallback((e) => {
+  // ✅ שמירה ל-Firestore
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.date || !formData.source || !formData.amount) {
       showToast('נא למלא את כל השדות', 'error');
       return;
     }
-    
-    if (editingId) {
-      dispatch({
-        type: 'UPDATE_EXPENSE',
-        payload: { ...formData, id: editingId, amount: Number(formData.amount) }
-      });
-      showToast('ההוצאה עודכנה בהצלחה! ✅', 'success');
-    } else {
-      dispatch({
-        type: 'ADD_EXPENSE',
-        payload: { id: Date.now(), ...formData, amount: Number(formData.amount) }
-      });
-      showToast('ההוצאה נוספה בהצלחה! ✅', 'success');
+
+    try {
+      if (editingId) {
+        // ✅ עדכון מסמך קיים ב-Firestore
+        const docRef = doc(db, 'transactions', editingId);
+        await updateDoc(docRef, {
+          source: formData.source,
+          amount: Number(formData.amount),
+          category: formData.category,
+          date: formData.date,
+        });
+        showToast('ההוצאה עודכנה בהצלחה! ✅', 'success');
+      } else {
+        // ✅ הוספת מסמך חדש ל-Firestore
+        await addTransaction({
+          source: formData.source,
+          amount: Number(formData.amount),
+          category: formData.category,
+          date: formData.date,
+        });
+        showToast('ההוצאה נוספה בהצלחה! ✅', 'success');
+      }
+
+      setFormData({ date: new Date().toISOString().split('T')[0], source: '', amount: '', category: categories[0]?.name || 'מוצרים' });
+      setShowForm(false);
+      setEditingId(null);
+    } catch (error) {
+      console.error('שגיאה:', error);
+      showToast('שגיאה בשמירת ההוצאה', 'error');
     }
-    
-    setFormData({ date: new Date().toISOString().split('T')[0], source: '', amount: '', category: categories[0]?.name || 'מוצרים' });
-    setShowForm(false);
-    setEditingId(null);
-  }, [formData, editingId, categories, dispatch, showToast]);
+  }, [formData, editingId, categories, addTransaction, showToast]);
 
   const handleEdit = useCallback((expense) => {
     setFormData({ date: expense.date, source: expense.source, amount: expense.amount.toString(), category: expense.category });
@@ -289,12 +297,18 @@ export default function Expenses() {
     setShowForm(true);
   }, []);
 
-  const handleDelete = useCallback((id) => {
+  // ✅ מחיקה מ-Firestore
+  const handleDelete = useCallback(async (id) => {
     if (confirm('האם אתה בטוח שברצונך למחוק הוצאה זו?')) {
-      dispatch({ type: 'DELETE_EXPENSE', payload: id });
-      showToast('ההוצאה נמחקה בהצלחה', 'success');
+      try {
+        await deleteDoc(doc(db, 'transactions', id));
+        showToast('ההוצאה נמחקה בהצלחה', 'success');
+      } catch (error) {
+        console.error('שגיאה במחיקה:', error);
+        showToast('שגיאה במחיקת ההוצאה', 'error');
+      }
     }
-  }, [dispatch, showToast]);
+  }, [showToast]);
 
   const handleClearFilters = useCallback(() => {
     setFilters({ search: '', category: '', dateFrom: '', dateTo: '', amountFrom: '', amountTo: '', sortBy: 'date-desc' });
@@ -308,8 +322,19 @@ export default function Expenses() {
     if (showForm && formRef.current) scrollToRef(formRef);
   }, [categories, showForm, scrollToRef]);
 
+  // ✅ מסך טעינה
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">טוען הוצאות...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    // ✅ הוספנו את ה-ref של האנימציה לקונטיינר הראשי
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
 
       {/* כותרת */}
@@ -341,7 +366,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ✅ כרטיס סיכום ראשי - גרדיאנט */}
+      {/* כרטיס סיכום ראשי */}
       <div className="gsap-card bg-gradient-to-br from-pink-500 via-rose-500 to-[#e5007e] rounded-2xl p-6 md:p-8 mb-6 shadow-xl text-white">
         <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
           <div className="p-2 md:p-3 bg-white/20 rounded-xl">
@@ -355,7 +380,7 @@ export default function Expenses() {
         <p className="text-3xl md:text-5xl font-bold">₪{totalFiltered.toLocaleString()}</p>
       </div>
 
-      {/* ✅ 4 כרטיסי סטטיסטיקה */}
+      {/* 4 כרטיסי סטטיסטיקה */}
       {stats && (
         <div className="gsap-card grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6">
 
