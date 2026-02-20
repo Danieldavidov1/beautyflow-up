@@ -2,12 +2,12 @@ import {
   TrendingUp, TrendingDown, Wallet, ArrowUpCircle, ArrowDownCircle,
   DollarSign, Activity
 } from 'lucide-react';
-import { useMemo, useRef } from 'react'; // ✅ הוספנו useRef
+import { useMemo, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { useAppContext } from '../../context/AppContext';
+import { useTransactions } from '../../hooks/useTransactions';
 import Reports from './Reports';
 
 // ✅ ייבוא ספריות האנימציה!
@@ -45,64 +45,71 @@ const CustomPieTooltip = ({ active, payload }) => {
 };
 
 export default function Dashboard({ currentPage }) {
-  const { state: { incomes, expenses } } = useAppContext();
-  
-  // ✅ יצירת רפרנס לקונטיינר הראשי בשביל האנימציה
+
+  // ✅ Firestore במקום AppContext
+  const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
+  const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
+
   const containerRef = useRef(null);
 
-  // ✅ הפעלת האנימציה בעת טעינת הקומפוננטה
   useGSAP(() => {
     gsap.from('.gsap-card', {
-      y: 40,             // מתחיל 40 פיקסלים למטה
-      opacity: 0,        // מתחיל שקוף לחלוטין
-      duration: 0.6,     // אורך האנימציה חצי שנייה
-      stagger: 0.1,      // קופצים אחד אחרי השני בהפרש של 0.1 שניות
-      ease: 'power3.out',// תנועה חלקה שמאטה בסוף
-      clearProps: 'all'  // מנקה את ההגדרות אחרי האנימציה כדי שלא יתנגש עם מצב לילה
+      y: 40,
+      opacity: 0,
+      duration: 0.6,
+      stagger: 0.1,
+      ease: 'power3.out',
+      clearProps: 'all'
     });
-  }, { scope: containerRef }); // הקוד יחפש את האלמנטים רק בתוך containerRef
+  }, { scope: containerRef });
 
   if (currentPage === 'reports') return <Reports />;
+
+  // ✅ מסך טעינה
+  if (loadingIncomes || loadingExpenses) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">טוען נתונים...</p>
+        </div>
+      </div>
+    );
+  }
 
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  const thisMonthIncomes = useMemo(() => incomes.filter(i => {
+  const thisMonthIncomes = incomes.filter(i => {
     const d = new Date(i.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  }), [incomes]);
+  });
 
-  const thisMonthExpenses = useMemo(() => expenses.filter(i => {
+  const thisMonthExpenses = expenses.filter(i => {
     const d = new Date(i.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  }), [expenses]);
+  });
 
-  const totalIncome = useMemo(() =>
-    thisMonthIncomes.reduce((s, i) => s + i.amount, 0), [thisMonthIncomes]);
-
-  const totalExpenses = useMemo(() =>
-    thisMonthExpenses.reduce((s, i) => s + i.amount, 0), [thisMonthExpenses]);
-
+  const totalIncome = thisMonthIncomes.reduce((s, i) => s + i.amount, 0);
+  const totalExpenses = thisMonthExpenses.reduce((s, i) => s + i.amount, 0);
   const balance = totalIncome - totalExpenses;
   const isProfit = balance >= 0;
 
-  const barData = useMemo(() => {
-    return Array.from({ length: 6 }, (_, i) => {
-      const date = new Date(currentYear, currentMonth - (5 - i), 1);
-      const m = date.getMonth();
-      const y = date.getFullYear();
-      const inc = incomes
-        .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
-        .reduce((s, x) => s + x.amount, 0);
-      const exp = expenses
-        .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
-        .reduce((s, x) => s + x.amount, 0);
-      return { name: MONTHS_HE[m], הכנסות: inc, הוצאות: exp };
-    });
-  }, [incomes, expenses]);
+  const barData = Array.from({ length: 6 }, (_, i) => {
+    const date = new Date(currentYear, currentMonth - (5 - i), 1);
+    const m = date.getMonth();
+    const y = date.getFullYear();
+    const inc = incomes
+      .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
+      .reduce((s, x) => s + x.amount, 0);
+    const exp = expenses
+      .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
+      .reduce((s, x) => s + x.amount, 0);
+    return { name: MONTHS_HE[m], הכנסות: inc, הוצאות: exp };
+  });
 
-  const pieData = useMemo(() => {
+  const pieData = (() => {
     const map = {};
     thisMonthExpenses.forEach(e => {
       map[e.category] = (map[e.category] || 0) + e.amount;
@@ -115,32 +122,25 @@ export default function Dashboard({ currentPage }) {
         percent: total > 0 ? ((value / total) * 100).toFixed(1) : '0'
       }))
       .sort((a, b) => b.value - a.value);
-  }, [thisMonthExpenses]);
+  })();
 
-  const recentTransactions = useMemo(() => {
-    const all = [
-      ...incomes.map(i => ({ ...i, type: 'income' })),
-      ...expenses.map(e => ({ ...e, type: 'expense' }))
-    ];
-    return all
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 5);
-  }, [incomes, expenses]);
+  const recentTransactions = [
+    ...incomes.map(i => ({ ...i, type: 'income' })),
+    ...expenses.map(e => ({ ...e, type: 'expense' }))
+  ]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 5);
 
   const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
   const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
-  const prevMonthIncome = useMemo(() =>
-    incomes
-      .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
-      .reduce((s, i) => s + i.amount, 0),
-  [incomes]);
+  const prevMonthIncome = incomes
+    .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
+    .reduce((s, i) => s + i.amount, 0);
 
-  const prevMonthExpense = useMemo(() =>
-    expenses
-      .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
-      .reduce((s, i) => s + i.amount, 0),
-  [expenses]);
+  const prevMonthExpense = expenses
+    .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
+    .reduce((s, i) => s + i.amount, 0);
 
   const incomeChange = prevMonthIncome > 0
     ? ((totalIncome - prevMonthIncome) / prevMonthIncome * 100).toFixed(1)
@@ -153,16 +153,15 @@ export default function Dashboard({ currentPage }) {
   const hasAnyData = incomes.length > 0 || expenses.length > 0;
 
   return (
-    // ✅ חיברנו את ה-ref לכאן!
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
 
       {/* כותרת */}
-      <div className="mb-6 md:mb-8 gsap-card"> {/* ✅ הוספנו gsap-card */}
+      <div className="mb-6 md:mb-8 gsap-card">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1 transition-colors">מסך הבית 🏠</h1>
         <p className="text-sm md:text-base text-gray-600 dark:text-gray-400 transition-colors">סקירה כללית של הפיננסים שלך</p>
       </div>
 
-      {/* ✅ כרטיס רווח/הפסד ראשי */}
+      {/* כרטיס רווח/הפסד ראשי */}
       <div className={`gsap-card rounded-2xl p-6 md:p-8 mb-6 shadow-xl text-white transition-colors ${
         isProfit
           ? 'bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600'
@@ -189,8 +188,9 @@ export default function Dashboard({ currentPage }) {
         </p>
       </div>
 
-      {/* ✅ 3 כרטיסי סיכום */}
+      {/* 3 כרטיסי סיכום */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+
         {/* הכנסות */}
         <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
           <div className="flex items-center justify-between mb-3">
@@ -255,7 +255,7 @@ export default function Dashboard({ currentPage }) {
 
       {hasAnyData ? (
         <>
-          {/* ✅ גרף עמודות - הכנסות מול הוצאות */}
+          {/* גרף עמודות */}
           <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 mb-6 transition-colors">
             <div className="flex items-center gap-2 mb-4">
               <Activity className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -274,10 +274,10 @@ export default function Dashboard({ currentPage }) {
             </ResponsiveContainer>
           </div>
 
-          {/* ✅ Pie Chart + עסקאות אחרונות */}
+          {/* Pie + עסקאות אחרונות */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
 
-            {/* Pie - הוצאות לפי קטגוריה */}
+            {/* Pie */}
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 transition-colors">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingDown className="w-5 h-5 text-[#e5007e]" />
@@ -295,7 +295,6 @@ export default function Dashboard({ currentPage }) {
                       <Tooltip content={<CustomPieTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
-                  {/* Legend ידני */}
                   <div className="space-y-2 mt-2">
                     {pieData.map((entry, index) => (
                       <div key={entry.name} className="flex items-center justify-between text-sm">
@@ -319,7 +318,7 @@ export default function Dashboard({ currentPage }) {
               )}
             </div>
 
-            {/* ✅ 5 עסקאות אחרונות - מאוחדות */}
+            {/* עסקאות אחרונות */}
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 transition-colors">
               <div className="flex items-center gap-2 mb-4">
                 <Activity className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -367,7 +366,6 @@ export default function Dashboard({ currentPage }) {
           </div>
         </>
       ) : (
-        /* ✅ Empty State - אין נתונים */
         <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center transition-colors">
           <Wallet className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">ברוך הבא! 👋</h3>
@@ -375,7 +373,7 @@ export default function Dashboard({ currentPage }) {
         </div>
       )}
 
-      {/* ✅ טיפ פיננסי */}
+      {/* טיפ פיננסי */}
       <div className="gsap-card bg-gradient-to-r from-[#e5007e] to-[#ff4da6] rounded-xl p-4 md:p-6 text-white shadow-md">
         <h3 className="text-lg md:text-xl font-bold mb-1">💡 טיפ פיננסי</h3>
         <p className="text-sm md:text-base text-white/90">
