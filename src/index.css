@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* צבעים ראשיים */
+  --primary: #e5007e;
+  --primary-light: #ff4da6;
+  --primary-dark: #b30062;
+ 
+  /* צבעי רקע */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fb;
+  --bg-card: #ffffff;
+ 
+  /* צבעי טקסט */
+  --text-primary: #1a1a1a;
+  --text-secondary: #6b7280;
+ 
+  /* צבעי משנה */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+ 
+  /* גבולות */
+  --border: #e5e7eb;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  direction: rtl;
+  font-family: 'Heebo', 'Rubik', sans-serif;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-gray-100 p-6;
+}
+
+.btn-primary {
+  @apply bg-[#e5007e] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#b30062] transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-white text-gray-700 px-6 py-3 rounded-xl font-medium border border-gray-200 hover:bg-gray-50 transition-colors;
+}
+
+/* 📱 Mobile Responsive */
+@media (max-width: 768px) {
+  /* טבלאות */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* כרטיסים */
+  .card {
+    @apply p-4;
+  }
+
+  /* כפתורים */
+  .btn-primary, .btn-secondary {
+    @apply px-4 py-2 text-sm;
+  }
+
+  /* Grid responsive */
+  .grid {
+    @apply gap-4;
+  }
+
+  /* טקסטים */
+  h1 {
+    @apply text-2xl;
+  }
+
+  h2 {
+    @apply text-xl;
+  }
+
+  /* Padding */
+  .p-8 {
+    @apply p-4;
+  }
+
+  .p-6 {
+    @apply p-4;
+  }
+}
