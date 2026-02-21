@@ -39,32 +39,42 @@ export default function Goals() {
     category: 'חיסכון'
   });
 
-  // ✅ שדרוג: סינון לפי קטגוריה
   const [activeCategory, setActiveCategory] = useState('הכל');
 
-  // ✅ טעינת יעדים מ-Firestore בזמן אמת
+  // ✅ התיקון הקריטי: טעינת יעדים מ-Firestore עם האזנה ל-Auth
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      setLoadingGoals(false);
-      return;
-    }
+    let unsubscribeSnapshot = () => {};
 
-    const q = query(
-      collection(db, 'goals'),
-      where('userId', '==', userId)
-    );
+    // מאזינים קודם כל לסטטוס ההתחברות של המשתמש (לוקח שבריר שנייה)
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        // אם יש משתמש, שולפים את היעדים שלו בלבד
+        const q = query(
+          collection(db, 'goals'),
+          where('userId', '==', user.uid)
+        );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setGoals(data);
-      setLoadingGoals(false);
+        // מאזינים לשינויים ביעדים בזמן אמת
+        unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setGoals(data);
+          setLoadingGoals(false); // הנתונים נטענו בהצלחה
+        });
+      } else {
+        // אם המשתמש לא מחובר או התנתק
+        setGoals([]);
+        setLoadingGoals(false);
+      }
     });
 
-    return () => unsubscribe();
+    // ניקוי המאזינים כדי למנוע זליגת זיכרון
+    return () => {
+      unsubscribeAuth();
+      unsubscribeSnapshot();
+    };
   }, []);
 
-  // ✅ תיקון GSAP: if (loading) return בתוך useGSAP + dependencies
+  // ✅ GSAP
   useGSAP(() => {
     if (loadingGoals) return;
     gsap.from('.gsap-card', {
@@ -77,24 +87,29 @@ export default function Goals() {
     });
   }, { scope: containerRef, dependencies: [loadingGoals] });
 
-  // ✅ יעדים מסוננים לפי קטגוריה
   const filteredGoals = activeCategory === 'הכל'
     ? goals
     : goals.filter(g => g.category === activeCategory);
 
-  // ✅ סטטיסטיקות כלליות (על כל היעדים, לא רק המסוננים)
   const completedCount = goals.filter(g => g.current >= g.target).length;
   const avgProgress = goals.length > 0
     ? Math.round(goals.reduce((sum, g) => sum + (g.current / g.target * 100), 0) / goals.length)
     : 0;
 
-  // ✅ שמירת יעד חדש ל-Firestore
+  // ✅ הוספת יעד ל-Firestore
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.target || !formData.deadline) {
       showToast('נא למלא את כל השדות החובה', 'error');
       return;
     }
+    
+    // מוודאים שוב שיש משתמש לפני השמירה
+    if (!auth.currentUser) {
+        showToast('יש להתחבר כדי לשמור יעדים', 'error');
+        return;
+    }
+
     try {
       await addDoc(collection(db, 'goals'), {
         title: formData.title,
@@ -102,7 +117,7 @@ export default function Goals() {
         current: Number(formData.current) || 0,
         deadline: formData.deadline,
         category: formData.category,
-        userId: auth.currentUser.uid,
+        userId: auth.currentUser.uid, // שומרים את ה-ID של המשתמש
         createdAt: new Date()
       });
       setFormData({ title: '', target: '', current: '', deadline: '', category: 'חיסכון' });
@@ -114,7 +129,7 @@ export default function Goals() {
     }
   }, [formData, showToast]);
 
-  // ✅ מחיקת יעד מ-Firestore
+  // ✅ מחיקת יעד
   const handleDelete = useCallback(async (id) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק יעד זה?')) return;
     try {
@@ -127,7 +142,7 @@ export default function Goals() {
     }
   }, [showToast]);
 
-  // ✅ עדכון סכום ב-Firestore
+  // ✅ עדכון סכום חיובי
   const handleAddMoney = useCallback(async (id) => {
     const inputEl = inputRefs.current[id];
     const amount = Number(inputEl?.value);
@@ -155,7 +170,7 @@ export default function Goals() {
     }
   }, [goals, showToast]);
 
-  // ✅ הפחתת סכום ב-Firestore
+  // ✅ עדכון סכום שלילי
   const handleSubtractMoney = useCallback(async (id) => {
     const inputEl = inputRefs.current[id];
     const amount = Number(inputEl?.value);
@@ -178,7 +193,7 @@ export default function Goals() {
     }
   }, [goals, showToast]);
 
-  // ✅ סימון כהושלם ב-Firestore
+  // ✅ סימון יעד כהושלם
   const handleComplete = useCallback(async (id) => {
     const currentGoal = goals.find(g => g.id === id);
     if (!currentGoal) return;
@@ -196,10 +211,7 @@ export default function Goals() {
   }, [goals, showToast]);
 
   return (
-    // ✅ ref תמיד קיים על ה-div הראשי
     <div className="pt-2 pb-8 px-4 md:p-8 relative transition-colors" ref={containerRef}>
-
-      {/* ✅ Spinner בתוך ה-div הראשי */}
       {loadingGoals ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
@@ -209,7 +221,6 @@ export default function Goals() {
         </div>
       ) : (
         <>
-          {/* ✅ כותרת — תוקנה למובייל: flex-col בסלולר */}
           <div className="gsap-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1 transition-colors">יעדים 🎯</h1>
@@ -224,7 +235,6 @@ export default function Goals() {
             </button>
           </div>
 
-          {/* כרטיסי סיכום */}
           <div className="gsap-card grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
             <div className="bg-gradient-to-br from-purple-400 via-pink-400 to-[#e5007e] dark:from-purple-600 dark:via-pink-600 dark:to-[#b30062] rounded-2xl p-5 md:p-6 text-white shadow-lg transition-colors">
               <div className="flex items-center gap-3 mb-2">
@@ -254,7 +264,6 @@ export default function Goals() {
             </div>
           </div>
 
-          {/* טופס הוספת יעד */}
           {showForm && (
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm mb-6 md:mb-8 border-2 border-[#e5007e] transition-colors">
               <div className="flex items-center justify-between mb-4">
@@ -339,7 +348,6 @@ export default function Goals() {
             </div>
           )}
 
-          {/* ✅ שדרוג: סינון לפי קטגוריה */}
           {goals.length > 0 && (
             <div className="gsap-card flex items-center gap-2 mb-5 flex-wrap">
               <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -370,7 +378,6 @@ export default function Goals() {
             </div>
           )}
 
-          {/* כרטיסי יעדים */}
           {filteredGoals.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
               {filteredGoals.map((goal) => {
@@ -382,7 +389,6 @@ export default function Goals() {
                   <div key={goal.id} className={`gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-lg border-2 transition-colors ${
                     isCompleted ? 'border-green-400 dark:border-green-500' : 'border-gray-200 dark:border-gray-700'
                   }`}>
-                    {/* כותרת כרטיס */}
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1 min-w-0 ml-2">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -402,7 +408,6 @@ export default function Goals() {
                       </button>
                     </div>
 
-                    {/* סכומים */}
                     <div className="flex justify-between items-end mb-4">
                       <div>
                         <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">התקדמות</p>
@@ -418,7 +423,6 @@ export default function Goals() {
                       </div>
                     </div>
 
-                    {/* Progress Bar */}
                     <div className="mb-4">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -444,7 +448,6 @@ export default function Goals() {
                       </div>
                     </div>
 
-                    {/* עדכון התקדמות */}
                     {!isCompleted && (
                       <div className="space-y-3">
                         <div className="flex gap-2">
@@ -497,7 +500,6 @@ export default function Goals() {
               })}
             </div>
           ) : goals.length > 0 ? (
-            // אין יעדים בקטגוריה הנבחרת
             <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
               <Filter className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
               <p className="text-gray-500 dark:text-gray-400 font-medium">אין יעדים בקטגוריה "{activeCategory}"</p>
@@ -509,7 +511,6 @@ export default function Goals() {
               </button>
             </div>
           ) : (
-            // אין יעדים בכלל
             <div className="gsap-card text-center py-12 bg-gray-50 dark:bg-gray-800/50 rounded-xl transition-colors">
               <Target className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">אין יעדים עדיין</h3>
