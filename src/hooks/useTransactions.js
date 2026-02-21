@@ -7,35 +7,47 @@ export function useTransactions(type) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
-    if (!userId) return;
+    // ✅ מאזין לשינויים ב-Auth - פותר את בעיית ה-GSAP וה-loading
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        const q = query(
+          collection(db, 'transactions'),
+          where('userId', '==', user.uid),
+          where('type', '==', type),
+          orderBy('date', 'desc')
+        );
 
-    const q = query(
-      collection(db, 'transactions'),
-      where('userId', '==', userId),
-      where('type', '==', type),
-      orderBy('date', 'desc')
-    );
+        const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setTransactions(data);
+          setLoading(false); // ✅ רק אחרי שהנתונים הגיעו
+        });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setTransactions(data);
-      setLoading(false);
+        // ✅ מנקה snapshot listener כשמשתמש מתנתק
+        return () => unsubscribeSnapshot();
+      } else {
+        // ✅ משתמש לא מחובר - מאפס הכל
+        setTransactions([]);
+        setLoading(false);
+      }
     });
 
-    return () => unsubscribe();
+    return () => unsubscribeAuth();
   }, [type]);
 
   const addTransaction = async (transaction) => {
-    const userId = auth.currentUser?.uid;
+    const user = auth.currentUser;
+    if (!user) return;
+
     await addDoc(collection(db, 'transactions'), {
       ...transaction,
-      userId,
+      userId: user.uid,
       type,
-      date: new Date().toISOString()
+      // ✅ שומר את התאריך שהמשתמש בחר, לא תאריך עכשיו
+      createdAt: new Date().toISOString()
     });
   };
 

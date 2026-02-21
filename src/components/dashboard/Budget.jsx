@@ -4,7 +4,15 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useToast } from '../../context/ToastContext';
-import { useAppContext } from '../../context/AppContext'; 
+
+// ✅ ייבוא ההוק ששולף נתונים
+import { useTransactions } from '../../hooks/useTransactions';
+
+// ✅ ייבוא הכלים של Firebase
+import { 
+  collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, getDocs 
+} from 'firebase/firestore';
+import { db, auth } from '../../firebase';
 
 // ✅ ייבוא GSAP
 import gsap from 'gsap';
@@ -19,11 +27,70 @@ const CATEGORY_COLORS = [
 
 export default function Budget() {
   const { showToast } = useToast();
-  const { state: { incomes, expenses, budget, categoryBudgets }, dispatch } = useAppContext();
   
+  // ✅ שליפת עסקאות מ-Firebase 
+  const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
+  const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
+  
+  // ✅ ניהול סטייט של התקציבים מ-Firebase
+  const [budget, setBudget] = useState({ income: 0, expenses: 0 });
+  const [categoryBudgets, setCategoryBudgets] = useState({});
+  const [loadingBudget, setLoadingBudget] = useState(true);
+
   const editSectionRef = useRef(null);
   const categoryBudgetRef = useRef(null);
-  const containerRef = useRef(null); // ✅ רפרנס לאנימציות GSAP
+  const containerRef = useRef(null); // רפרנס לאנימציות GSAP
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  // ✅ טעינת התקציב מ-Firebase בזמן אמת
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) {
+      setLoadingBudget(false);
+      return;
+    }
+
+    // טעינת תקציב כללי לחודש הנוכחי
+    const budgetQuery = query(
+      collection(db, 'budgets'),
+      where('userId', '==', userId),
+      where('month', '==', currentMonth + 1),
+      where('year', '==', currentYear)
+    );
+    
+    const unsubscribeBudget = onSnapshot(budgetQuery, (snapshot) => {
+      const budgetDoc = snapshot.docs[0];
+      if (budgetDoc) {
+        setBudget(budgetDoc.data());
+      }
+      setLoadingBudget(false);
+    });
+
+    // טעינת תקציבים לפי קטגוריות
+    const catQuery = query(
+      collection(db, 'categoryBudgets'),
+      where('userId', '==', userId),
+      where('month', '==', currentMonth + 1),
+      where('year', '==', currentYear)
+    );
+    
+    const unsubscribeCats = onSnapshot(catQuery, (snapshot) => {
+      const cats = {};
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        cats[data.category] = data.amount;
+      });
+      setCategoryBudgets(cats);
+    });
+
+    return () => {
+      unsubscribeBudget();
+      unsubscribeCats();
+    };
+  }, [currentMonth, currentYear]);
 
   // ✅ הפעלת האנימציה
   useGSAP(() => {
@@ -39,10 +106,10 @@ export default function Budget() {
 
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
-  const [tempBudget, setTempBudget] = useState(budget);
+  const [tempBudget, setTempBudget] = useState({ income: 0, expenses: 0 });
   const [newCatName, setNewCatName] = useState('');
   const [newCatAmount, setNewCatAmount] = useState('');
-  const [editingCat, setEditingCat] = useState(null); 
+  const [editingCat, setEditingCat] = useState(null);
 
   const scrollToRef = useCallback((ref) => {
     if (!ref?.current) return;
@@ -64,21 +131,17 @@ export default function Budget() {
       setTempBudget(budget);
   }, [budget]);
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-
   const thisMonthExpenses = useMemo(() =>
     expenses.filter(e => {
       const d = new Date(e.date);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    }), [expenses]);
+    }), [expenses, currentMonth, currentYear]);
 
   const thisMonthIncomes = useMemo(() =>
     incomes.filter(i => {
       const d = new Date(i.date);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    }), [incomes]);
+    }), [incomes, currentMonth, currentYear]);
 
   const totalIncome = useMemo(() =>
     thisMonthIncomes.reduce((s, i) => s + i.amount, 0), [thisMonthIncomes]);
@@ -131,6 +194,146 @@ export default function Budget() {
     return tips.slice(0, 3); 
   }, [expenseProgress, incomeProgress, expensesByCategory, categoryBudgets, allTrackedCategories, totalIncome]);
 
+  // ✅ שמירה ועדכון מול Firebase
+  const handleSaveBudget = useCallback(async () => {
+    if (tempBudget.income < 0 || tempBudget.expenses < 0) {
+      showToast('אין להזין סכומים שליליים', 'error');
+      return;
+    }
+
+    try {
+      const userId = auth.currentUser.uid;
+      // נבדק האם קיים כבר מסמך תקציב לחודש הזה
+      const q = query(collection(db, 'budgets'), 
+        where('userId', '==', userId),
+        where('month', '==', currentMonth + 1),
+        where('year', '==', currentYear)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        // עדכון מסמך קיים
+        const docRef = querySnapshot.docs[0].ref;
+        await updateDoc(docRef, { ...tempBudget, updatedAt: new Date() });
+      } else {
+        // יצירת מסמך חדש
+        await addDoc(collection(db, 'budgets'), {
+          ...tempBudget,
+          userId,
+          month: currentMonth + 1,
+          year: currentYear,
+          createdAt: new Date()
+        });
+      }
+      
+      setShowEdit(false);
+      showToast('התקציב עודכן בהצלחה! 🎯', 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בשמירת התקציב', 'error');
+    }
+  }, [tempBudget, showToast, currentMonth, currentYear]);
+
+  const handleAddCategoryBudget = useCallback(async () => {
+    if (!newCatName.trim() || !newCatAmount || Number(newCatAmount) <= 0) {
+      showToast('נא למלא שם קטגוריה וסכום תקין', 'error');
+      return;
+    }
+    
+    try {
+      await addDoc(collection(db, 'categoryBudgets'), {
+        category: newCatName.trim(),
+        amount: Number(newCatAmount),
+        userId: auth.currentUser.uid,
+        month: currentMonth + 1,
+        year: currentYear
+      });
+      
+      setNewCatName('');
+      setNewCatAmount('');
+      setShowAddCategory(false);
+      showToast(`תקציב לקטגוריה "${newCatName.trim()}" נוסף! ✅`, 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בהוספת קטגוריה', 'error');
+    }
+  }, [newCatName, newCatAmount, showToast, currentMonth, currentYear]);
+
+  const handleUpdateCategoryBudget = useCallback(async (catName) => {
+    if (!editingCat?.amount || Number(editingCat.amount) <= 0) {
+      showToast('נא להזין סכום תקין', 'error');
+      return;
+    }
+    
+    try {
+      const q = query(collection(db, 'categoryBudgets'),
+        where('userId', '==', auth.currentUser.uid),
+        where('category', '==', catName),
+        where('month', '==', currentMonth + 1),
+        where('year', '==', currentYear)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        await updateDoc(docRef, { amount: Number(editingCat.amount), updatedAt: new Date() });
+        setEditingCat(null);
+        showToast('תקציב הקטגוריה עודכן! ✅', 'success');
+      }
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בעדכון קטגוריה', 'error');
+    }
+  }, [editingCat, showToast, currentMonth, currentYear]);
+
+  const handleDeleteCategoryBudget = useCallback(async (catName) => {
+    try {
+      const q = query(collection(db, 'categoryBudgets'),
+        where('userId', '==', auth.currentUser.uid),
+        where('category', '==', catName),
+        where('month', '==', currentMonth + 1),
+        where('year', '==', currentYear)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        await deleteDoc(docRef);
+        showToast(`תקציב "${catName}" הוסר`, 'success');
+      }
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה במחיקת קטגוריה', 'error');
+    }
+  }, [showToast, currentMonth, currentYear]);
+
+  const handleExport = useCallback(() => {
+    const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+    const data = [
+      [`דוח תקציב - ${MONTHS_HE[currentMonth]} ${currentYear}`, '', ''],
+      ['', '', ''],
+      ['קטגוריה', 'מתוכנן', 'בפועל'],
+      ['הכנסות', `₪${budget.income?.toLocaleString() || 0}`, `₪${totalIncome.toLocaleString()}`],
+      ['הוצאות', `₪${budget.expenses?.toLocaleString() || 0}`, `₪${totalExpenses.toLocaleString()}`],
+      ['רווח נקי', `₪${((budget.income || 0) - (budget.expenses || 0)).toLocaleString()}`, `₪${(totalIncome - totalExpenses).toLocaleString()}`],
+      ['', '', ''],
+      ['פירוט הוצאות לפי קטגוריה', 'תקציב', 'בפועל'],
+      ...allTrackedCategories.map(cat => [
+        cat,
+        categoryBudgets[cat] ? `₪${categoryBudgets[cat].toLocaleString()}` : 'לא הוגדר',
+        `₪${(expensesByCategory[cat] || 0).toLocaleString()}`
+      ]),
+    ];
+    const csvContent = data.map(r => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `דוח_תקציב_${currentMonth + 1}-${currentYear}.csv`;
+    link.click();
+    showToast('הדוח ירד למחשב! 📊', 'success');
+  }, [budget, totalIncome, totalExpenses, categoryBudgets, expensesByCategory, allTrackedCategories, currentMonth, currentYear, showToast]);
+
   const getBarColor = (percent) => {
     if (percent >= 100) return 'bg-red-500';
     if (percent >= 80) return 'bg-amber-400';
@@ -149,79 +352,22 @@ export default function Budget() {
     return '🟢';
   };
 
-  const handleSaveBudget = useCallback(() => {
-    if (tempBudget.income < 0 || tempBudget.expenses < 0) {
-      showToast('אין להזין סכומים שליליים', 'error');
-      return;
-    }
-    dispatch({ type: 'SET_BUDGET', payload: tempBudget });
-    setShowEdit(false);
-    showToast('התקציב עודכן בהצלחה! 🎯', 'success');
-  }, [tempBudget, dispatch, showToast]);
-
-  const handleAddCategoryBudget = useCallback(() => {
-    if (!newCatName.trim() || !newCatAmount || Number(newCatAmount) <= 0) {
-      showToast('נא למלא שם קטגוריה וסכום תקין', 'error');
-      return;
-    }
-    const updatedCategoryBudgets = { ...categoryBudgets, [newCatName.trim()]: Number(newCatAmount) };
-    dispatch({ type: 'SET_CATEGORY_BUDGETS', payload: updatedCategoryBudgets });
-    
-    setNewCatName('');
-    setNewCatAmount('');
-    showToast(`תקציב לקטגוריה "${newCatName.trim()}" נוסף! ✅`, 'success');
-  }, [newCatName, newCatAmount, categoryBudgets, dispatch, showToast]);
-
-  const handleUpdateCategoryBudget = useCallback((catName) => {
-    if (!editingCat?.amount || Number(editingCat.amount) <= 0) {
-      showToast('נא להזין סכום תקין', 'error');
-      return;
-    }
-    const updatedCategoryBudgets = { ...categoryBudgets, [catName]: Number(editingCat.amount) };
-    dispatch({ type: 'SET_CATEGORY_BUDGETS', payload: updatedCategoryBudgets });
-    
-    setEditingCat(null);
-    showToast('תקציב הקטגוריה עודכן! ✅', 'success');
-  }, [editingCat, categoryBudgets, dispatch, showToast]);
-
-  const handleDeleteCategoryBudget = useCallback((catName) => {
-    const updatedCategoryBudgets = { ...categoryBudgets };
-    delete updatedCategoryBudgets[catName];
-    dispatch({ type: 'SET_CATEGORY_BUDGETS', payload: updatedCategoryBudgets });
-    
-    showToast(`תקציב "${catName}" הוסר`, 'success');
-  }, [categoryBudgets, dispatch, showToast]);
-
-  const handleExport = useCallback(() => {
-    const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-    const data = [
-      [`דוח תקציב - ${MONTHS_HE[currentMonth]} ${currentYear}`, '', ''],
-      ['', '', ''],
-      ['קטגוריה', 'מתוכנן', 'בפועל'],
-      ['הכנסות', `₪${budget.income.toLocaleString()}`, `₪${totalIncome.toLocaleString()}`],
-      ['הוצאות', `₪${budget.expenses.toLocaleString()}`, `₪${totalExpenses.toLocaleString()}`],
-      ['רווח נקי', `₪${(budget.income - budget.expenses).toLocaleString()}`, `₪${(totalIncome - totalExpenses).toLocaleString()}`],
-      ['', '', ''],
-      ['פירוט הוצאות לפי קטגוריה', 'תקציב', 'בפועל'],
-      ...allTrackedCategories.map(cat => [
-        cat,
-        categoryBudgets[cat] ? `₪${categoryBudgets[cat].toLocaleString()}` : 'לא הוגדר',
-        `₪${(expensesByCategory[cat] || 0).toLocaleString()}`
-      ]),
-    ];
-    const csvContent = data.map(r => r.join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `דוח_תקציב_${currentMonth + 1}-${currentYear}.csv`;
-    link.click();
-    showToast('הדוח ירד למחשב! 📊', 'success');
-  }, [budget, totalIncome, totalExpenses, categoryBudgets, expensesByCategory, allTrackedCategories, currentMonth, currentYear, showToast]);
-
   const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
+  // מסך טעינה בזמן שהנתונים מגיעים מ-Firebase
+  if (loadingIncomes || loadingExpenses || loadingBudget) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">טוען תקציב מ-Firebase...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}> {/* ✅ רפרנס GSAP */}
+    <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
 
       {/* כותרת */}
       <div className="gsap-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
@@ -235,7 +381,7 @@ export default function Budget() {
             <Download className="w-4 h-4" />
             ייצוא CSV
           </button>
-          <button onClick={() => { setTempBudget(budget); setShowEdit(true); }}
+          <button onClick={() => { setTempBudget(budget || { income: 0, expenses: 0 }); setShowEdit(true); }}
             className="flex items-center gap-2 bg-[#e5007e] text-white px-4 sm:px-6 py-2.5 rounded-xl hover:bg-[#b30062] transition-colors font-medium text-sm w-full sm:w-auto justify-center">
             <Edit className="w-4 h-4" />
             ערוך תקציב
@@ -243,7 +389,7 @@ export default function Budget() {
         </div>
       </div>
 
-      {/* ✅ כרטיס סיכום ראשי */}
+      {/* כרטיס סיכום ראשי */}
       <div className={`gsap-card rounded-2xl p-6 md:p-8 mb-6 shadow-xl text-white transition-colors ${
         totalIncome - totalExpenses >= 0
           ? 'bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600'
@@ -264,7 +410,7 @@ export default function Budget() {
         <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/20">
           <div>
             <p className="text-white/70 text-xs mb-1">רווח מתוכנן</p>
-            <p className="font-bold text-lg">₪{(budget.income - budget.expenses).toLocaleString()}</p>
+            <p className="font-bold text-lg">₪{((budget?.income || 0) - (budget?.expenses || 0)).toLocaleString()}</p>
           </div>
           <div>
             <p className="text-white/70 text-xs mb-1">בפועל</p>
@@ -273,13 +419,13 @@ export default function Budget() {
           <div>
             <p className="text-white/70 text-xs mb-1">סטטוס</p>
             <p className="font-bold text-lg">
-              {totalIncome - totalExpenses >= budget.income - budget.expenses ? '✅ מצוין' : '⚠️ שפר'}
+              {totalIncome - totalExpenses >= (budget?.income || 0) - (budget?.expenses || 0) ? '✅ מצוין' : '⚠️ שפר'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* ✅ טיפים חכמים */}
+      {/* טיפים חכמים */}
       {smartTips.length > 0 && (
         <div className="gsap-card space-y-2 mb-6">
           {smartTips.map((tip, idx) => (
@@ -301,7 +447,7 @@ export default function Budget() {
         </div>
       )}
 
-      {/* ✅ אזהרות */}
+      {/* אזהרות */}
       {expenseProgress > 90 && expenseProgress <= 100 && (
         <div className="gsap-card bg-amber-50 dark:bg-amber-900/30 border-r-4 border-amber-400 dark:border-amber-500 p-4 mb-6 rounded-xl flex items-center gap-3 transition-colors">
           <AlertCircle className="w-5 h-5 text-amber-500 dark:text-amber-400 flex-shrink-0" />
@@ -321,7 +467,7 @@ export default function Budget() {
         </div>
       )}
 
-      {/* ✅ טופס עריכת תקציב כולל */}
+      {/* טופס עריכת תקציב כולל */}
       {showEdit && (
         <div ref={editSectionRef} className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm mb-6 border-2 border-[#e5007e] dark:border-pink-800 transition-colors">
           <div className="flex items-center justify-between mb-4">
@@ -357,7 +503,7 @@ export default function Budget() {
         </div>
       )}
 
-      {/* ✅ 2 כרטיסי Progress - הכנסות + הוצאות כוללות */}
+      {/* 2 כרטיסי Progress - הכנסות + הוצאות כוללות */}
       <div className="gsap-card grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
 
         {/* הכנסות */}
@@ -369,7 +515,7 @@ export default function Budget() {
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900 dark:text-white">הכנסות</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">יעד: ₪{budget.income.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">יעד: ₪{budget?.income?.toLocaleString() || 0}</p>
               </div>
             </div>
             {incomeProgress >= 100
@@ -402,7 +548,7 @@ export default function Budget() {
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900 dark:text-white">הוצאות</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">תקרה: ₪{budget.expenses.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">תקרה: ₪{budget?.expenses?.toLocaleString() || 0}</p>
               </div>
             </div>
             {expenseProgress <= 100
@@ -429,7 +575,7 @@ export default function Budget() {
         </div>
       </div>
 
-      {/* ✅ תקציב לפי קטגוריה - הלב של הדף */}
+      {/* תקציב לפי קטגוריה - הלב של הדף */}
       <div ref={categoryBudgetRef} className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 overflow-hidden transition-colors">
         <div className="p-4 md:p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800/50">
           <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -584,7 +730,7 @@ export default function Budget() {
         </div>
       </div>
 
-      {/* ✅ פירוט הכנסות והוצאות */}
+      {/* פירוט הכנסות והוצאות */}
       <div className="gsap-card grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
 
         {/* הכנסות לפי קטגוריה */}
