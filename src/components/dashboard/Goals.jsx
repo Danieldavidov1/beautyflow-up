@@ -41,38 +41,45 @@ export default function Goals() {
 
   const [activeCategory, setActiveCategory] = useState('הכל');
 
-  // ✅ התיקון הקריטי: טעינת יעדים מ-Firestore עם האזנה ל-Auth
+  // ✅ טעינת יעדים מ-Firestore בזמן אמת עם תפיסת שגיאות הרשאה
   useEffect(() => {
     let unsubscribeSnapshot = () => {};
 
-    // מאזינים קודם כל לסטטוס ההתחברות של המשתמש (לוקח שבריר שנייה)
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // אם יש משתמש, שולפים את היעדים שלו בלבד
         const q = query(
           collection(db, 'goals'),
           where('userId', '==', user.uid)
         );
 
-        // מאזינים לשינויים ביעדים בזמן אמת
-        unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setGoals(data);
-          setLoadingGoals(false); // הנתונים נטענו בהצלחה
-        });
+        // ✅ הוספנו תפיסת שגיאות למקרה שה-Rules ב-Firebase חוסמים אותנו
+        unsubscribeSnapshot = onSnapshot(q, 
+          (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setGoals(data);
+            setLoadingGoals(false);
+          },
+          (error) => {
+            console.error("Firebase Error:", error);
+            if (error.code === 'permission-denied') {
+              showToast('שגיאת הרשאות: אנא עדכן את חוקי ה-Firestore ב-Firebase', 'error');
+            } else {
+              showToast('שגיאה בטעינת היעדים', 'error');
+            }
+            setLoadingGoals(false); // חובה לעצור את הספינר גם כשיש שגיאה!
+          }
+        );
       } else {
-        // אם המשתמש לא מחובר או התנתק
         setGoals([]);
         setLoadingGoals(false);
       }
     });
 
-    // ניקוי המאזינים כדי למנוע זליגת זיכרון
     return () => {
       unsubscribeAuth();
       unsubscribeSnapshot();
     };
-  }, []);
+  }, [showToast]);
 
   // ✅ GSAP
   useGSAP(() => {
@@ -104,7 +111,6 @@ export default function Goals() {
       return;
     }
     
-    // מוודאים שוב שיש משתמש לפני השמירה
     if (!auth.currentUser) {
         showToast('יש להתחבר כדי לשמור יעדים', 'error');
         return;
@@ -117,7 +123,7 @@ export default function Goals() {
         current: Number(formData.current) || 0,
         deadline: formData.deadline,
         category: formData.category,
-        userId: auth.currentUser.uid, // שומרים את ה-ID של המשתמש
+        userId: auth.currentUser.uid,
         createdAt: new Date()
       });
       setFormData({ title: '', target: '', current: '', deadline: '', category: 'חיסכון' });
