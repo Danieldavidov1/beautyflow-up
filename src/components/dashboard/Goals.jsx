@@ -16,20 +16,19 @@ import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveCont
 const HEADER_HEIGHT = 73;
 
 const DEFAULT_CATEGORIES = [
-  { name: 'חיסכון',         color: '#8b5cf6' },
-  { name: 'הכנסות',        color: '#10b981' },
-  { name: 'השקעה',          color: '#3b82f6' },
-  { name: 'צמצום הוצאות',  color: '#f97316' },
-  { name: 'אחר',            color: '#6b7280' },
+  { name: 'חיסכון',        color: '#8b5cf6' },
+  { name: 'הכנסות',       color: '#10b981' },
+  { name: 'השקעה',         color: '#3b82f6' },
+  { name: 'צמצום הוצאות', color: '#f97316' },
+  { name: 'אחר',           color: '#6b7280' },
 ];
 
-// ✅ גרף progress bars מותאם RTL
+// ✅ גרף progress bars מותאם RTL — ללא Recharts BarChart
 const GoalsProgressChart = ({ data }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  
+
   if (!data || !data.length) return null;
 
-  // חיתוך הנתונים ל-3 בלבד אם לא מורחב
   const displayedData = isExpanded ? data : data.slice(0, 3);
   const hasMore = data.length > 3;
 
@@ -38,7 +37,7 @@ const GoalsProgressChart = ({ data }) => {
       <div className="space-y-5">
         {displayedData.map((item, idx) => {
           const current = item.current || 0;
-          const target = item.target || 1; 
+          const target = item.target || 1;
           const pct = Math.min((current / target) * 100, 100);
           const remaining = Math.max(target - current, 0);
 
@@ -109,7 +108,7 @@ export default function Goals() {
 
   const [showForm, setShowForm] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     title: '',
     target: '',
@@ -120,7 +119,7 @@ export default function Goals() {
 
   const [activeCategory, setActiveCategory] = useState('הכל');
 
-  // ✅ ניהול קטגוריות
+  // ✅ ניהול קטגוריות — localStorage (מותאם אישית, לא Firestore)
   const [categories, setCategories] = useState(() => {
     const saved = localStorage.getItem('goalCategories');
     return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
@@ -136,13 +135,14 @@ export default function Goals() {
     localStorage.setItem('goalCategories', JSON.stringify(categories));
   }, [categories]);
 
-  const categoryColorMap = useMemo(() => Object.fromEntries(categories.map(c => [c.name, c.color])), [categories]);
-  const getCategoryColor = useCallback((catName) => categoryColorMap[catName] ?? '#6b7280', [categoryColorMap]);
+  const categoryColorMap = useMemo(() =>
+    Object.fromEntries(categories.map(c => [c.name, c.color])), [categories]);
+  const getCategoryColor = useCallback((catName) =>
+    categoryColorMap[catName] ?? '#6b7280', [categoryColorMap]);
 
-  // ✅ גלילה חכמה מתוקנת (מונע צורך בלחיצה כפולה)
+  // ✅ גלילה חכמה
   const handleNewGoalClick = () => {
     setShowForm(true);
-    // נותנים ל-React 100 אלפיות שנייה לרנדר את הטופס, ואז גוללים אליו
     setTimeout(() => {
       if (formRef.current) {
         const y = formRef.current.getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT - 20;
@@ -152,32 +152,36 @@ export default function Goals() {
   };
 
   const handleCategoryManagerClick = () => {
-    setShowCategoryManager(!showCategoryManager);
-    if (!showCategoryManager) {
-      setTimeout(() => {
-        if (categoryRef.current) {
-          const y = categoryRef.current.getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT - 20;
-          window.scrollTo({ top: y, behavior: 'smooth' });
-        }
-      }, 100);
-    }
+    setShowCategoryManager(prev => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          if (categoryRef.current) {
+            const y = categoryRef.current.getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT - 20;
+            window.scrollTo({ top: y, behavior: 'smooth' });
+          }
+        }, 100);
+      }
+      return next;
+    });
   };
 
   // ✅ טעינת יעדים מ-Firestore בזמן אמת
+  // תיקון: dependency array מכיל [showToast] כדי להימנע מ-stale closure warning
   useEffect(() => {
     let unsubscribeSnapshot = () => {};
 
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
         const q = query(collection(db, 'goals'), where('userId', '==', user.uid));
-        unsubscribeSnapshot = onSnapshot(q, 
+        unsubscribeSnapshot = onSnapshot(q,
           (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             setGoals(data);
             setLoadingGoals(false);
           },
           (error) => {
-            console.error("Firebase Error:", error);
+            console.error('Firebase Error:', error);
             if (error.code === 'permission-denied') {
               showToast('שגיאת הרשאות: אנא עדכן את חוקי ה-Firestore ב-Firebase', 'error');
             }
@@ -194,9 +198,9 @@ export default function Goals() {
       unsubscribeAuth();
       unsubscribeSnapshot();
     };
-  }, [showToast]);
+  }, [showToast]); // ✅ תוקן: dependency מלא
 
-  // ✅ GSAP
+  // ✅ GSAP — תיקון dependencies
   useGSAP(() => {
     if (loadingGoals) return;
     gsap.from('.gsap-card', {
@@ -209,31 +213,27 @@ export default function Goals() {
     });
   }, { scope: containerRef, dependencies: [loadingGoals] });
 
-  // נתונים לגרפים וסטטיסטיקות
-  const filteredGoals = activeCategory === 'הכל' ? goals : goals.filter(g => g.category === activeCategory);
+  // נתוני גרפים וסטטיסטיקות
+  const filteredGoals = activeCategory === 'הכל'
+    ? goals
+    : goals.filter(g => g.category === activeCategory);
+
   const completedCount = goals.filter(g => g.current >= g.target).length;
-  const avgProgress = goals.length > 0 ? Math.round(goals.reduce((sum, g) => sum + (g.current / g.target * 100), 0) / goals.length) : 0;
+  const avgProgress = goals.length > 0
+    ? Math.round(goals.reduce((sum, g) => sum + (g.current / g.target * 100), 0) / goals.length)
+    : 0;
 
-  // נתוני גרף התקדמות (ללא Recharts)
-  const activeGoalsChartData = useMemo(() => {
-    return goals
+  const activeGoalsChartData = useMemo(() =>
+    goals
       .filter(g => g.current < g.target)
-      .map(g => ({
-        name: g.title,
-        current: g.current || 0,
-        target: g.target || 1
-      }));
-  }, [goals]);
+      .map(g => ({ name: g.title, current: g.current || 0, target: g.target || 1 })),
+    [goals]);
 
-  // נתוני גרף עוגה
   const pieChartData = useMemo(() => {
     const map = {};
-    goals.forEach(g => {
-      map[g.category] = (map[g.category] || 0) + 1;
-    });
+    goals.forEach(g => { map[g.category] = (map[g.category] || 0) + 1; });
     return Object.entries(map).map(([name, value]) => ({ name, value }));
   }, [goals]);
-
 
   // ✅ ניהול קטגוריות
   const handleAddCategory = () => {
@@ -249,7 +249,8 @@ export default function Goals() {
 
   const handleUpdateCategory = () => {
     if (!editingCat) return;
-    setCategories(categories.map((c, i) => i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c));
+    setCategories(categories.map((c, i) =>
+      i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c));
     setEditingCat(null);
     showToast('קטגוריה עודכנה!', 'success');
   };
@@ -277,15 +278,17 @@ export default function Goals() {
     setDragOver(null);
   };
 
-  // ✅ ניהול יעדים (Firebase)
+  // ✅ ניהול יעדים Firebase — כולל try/catch מלא
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.target || !formData.deadline) {
       showToast('נא למלא את כל השדות החובה', 'error');
       return;
     }
-    if (!auth.currentUser) return;
-
+    if (!auth.currentUser) {
+      showToast('יש להתחבר כדי להוסיף יעד', 'error');
+      return;
+    }
     try {
       await addDoc(collection(db, 'goals'), {
         title: formData.title,
@@ -300,49 +303,78 @@ export default function Goals() {
       setShowForm(false);
       showToast('היעד נוסף בהצלחה! 🎯', 'success');
     } catch (error) {
+      console.error(error);
       showToast('שגיאה בהוספת היעד', 'error');
     }
   }, [formData, categories, showToast]);
 
+  // ✅ תיקון: try/catch על כל פעולות Firebase
   const handleDelete = async (id) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק יעד זה?')) return;
-    await deleteDoc(doc(db, 'goals', id));
-    delete inputRefs.current[id];
-    showToast('היעד נמחק בהצלחה', 'success');
+    try {
+      await deleteDoc(doc(db, 'goals', id));
+      delete inputRefs.current[id];
+      showToast('היעד נמחק בהצלחה', 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה במחיקת היעד', 'error');
+    }
   };
 
   const handleAddMoney = async (id) => {
     const inputEl = inputRefs.current[id];
     const amount = Number(inputEl?.value);
-    if (!amount || amount <= 0) return showToast('נא להכניס סכום', 'error');
+    if (!amount || amount <= 0) return showToast('נא להכניס סכום גדול מ-0', 'error');
     const currentGoal = goals.find(g => g.id === id);
     if (!currentGoal) return;
     const remaining = currentGoal.target - currentGoal.current;
     if (amount > remaining) return showToast(`ניתן להוסיף מקסימום ₪${remaining.toLocaleString()}`, 'error');
-    
-    await updateDoc(doc(db, 'goals', id), { current: currentGoal.current + amount });
-    if (inputEl) inputEl.value = '';
-    showToast(`נוספו ₪${amount.toLocaleString()}! ✅`, 'success');
+    try {
+      await updateDoc(doc(db, 'goals', id), {
+        current: currentGoal.current + amount,
+        updatedAt: new Date()
+      });
+      if (inputEl) inputEl.value = '';
+      showToast(`נוספו ₪${amount.toLocaleString()}! ✅`, 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בעדכון היעד', 'error');
+    }
   };
 
   const handleSubtractMoney = async (id) => {
     const inputEl = inputRefs.current[id];
     const amount = Number(inputEl?.value);
-    if (!amount || amount <= 0) return showToast('נא להכניס סכום', 'error');
+    if (!amount || amount <= 0) return showToast('נא להכניס סכום גדול מ-0', 'error');
     const currentGoal = goals.find(g => g.id === id);
     if (!currentGoal) return;
-
-    await updateDoc(doc(db, 'goals', id), { current: Math.max(currentGoal.current - amount, 0) });
-    if (inputEl) inputEl.value = '';
-    showToast(`הופחתו ₪${amount.toLocaleString()}`, 'warning');
+    try {
+      await updateDoc(doc(db, 'goals', id), {
+        current: Math.max(currentGoal.current - amount, 0),
+        updatedAt: new Date()
+      });
+      if (inputEl) inputEl.value = '';
+      showToast(`הופחתו ₪${amount.toLocaleString()} מהיעד!`, 'warning');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בעדכון היעד', 'error');
+    }
   };
 
   const handleComplete = async (id) => {
     const currentGoal = goals.find(g => g.id === id);
     if (!currentGoal) return;
     if (!confirm(`סמן את "${currentGoal.title}" כהושלם?`)) return;
-    await updateDoc(doc(db, 'goals', id), { current: currentGoal.target });
-    showToast('ברכות! היעד הושלם! 🎉', 'success');
+    try {
+      await updateDoc(doc(db, 'goals', id), {
+        current: currentGoal.target,
+        updatedAt: new Date()
+      });
+      showToast('ברכות! היעד הושלם! 🎉', 'success');
+    } catch (error) {
+      console.error(error);
+      showToast('שגיאה בעדכון היעד', 'error');
+    }
   };
 
   return (
@@ -366,7 +398,9 @@ export default function Goals() {
               <button
                 onClick={handleCategoryManagerClick}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 font-medium text-sm transition-colors w-full sm:w-auto justify-center ${
-                  showCategoryManager ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-400 text-purple-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  showCategoryManager
+                    ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-400 text-purple-700 dark:text-purple-300'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
               >
                 <Tag className="w-4 h-4" /> קטגוריות
@@ -382,7 +416,7 @@ export default function Goals() {
 
           {/* כרטיסי סיכום */}
           <div className="gsap-card grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
-            <div className="bg-gradient-to-br from-purple-400 via-pink-400 to-[#e5007e] rounded-2xl p-5 md:p-6 text-white shadow-lg transition-colors">
+            <div className="bg-gradient-to-br from-purple-400 via-pink-400 to-[#e5007e] rounded-2xl p-5 md:p-6 text-white shadow-lg">
               <div className="flex items-center gap-3 mb-2">
                 <Target className="w-7 h-7 md:w-8 md:h-8" />
                 <h3 className="text-base md:text-lg font-medium">סך יעדים</h3>
@@ -391,7 +425,7 @@ export default function Goals() {
               <p className="text-sm mt-2 text-white/80">יעדים פעילים</p>
             </div>
 
-            <div className="bg-gradient-to-br from-green-400 via-emerald-400 to-teal-500 rounded-2xl p-5 md:p-6 text-white shadow-lg transition-colors">
+            <div className="bg-gradient-to-br from-green-400 via-emerald-400 to-teal-500 rounded-2xl p-5 md:p-6 text-white shadow-lg">
               <div className="flex items-center gap-3 mb-2">
                 <Award className="w-7 h-7 md:w-8 md:h-8" />
                 <h3 className="text-base md:text-lg font-medium">הושלמו</h3>
@@ -400,7 +434,7 @@ export default function Goals() {
               <p className="text-sm mt-2 text-white/80">יעדים שהושגו</p>
             </div>
 
-            <div className="bg-gradient-to-br from-blue-400 via-cyan-400 to-sky-500 rounded-2xl p-5 md:p-6 text-white shadow-lg transition-colors">
+            <div className="bg-gradient-to-br from-blue-400 via-cyan-400 to-sky-500 rounded-2xl p-5 md:p-6 text-white shadow-lg">
               <div className="flex items-center gap-3 mb-2">
                 <TrendingUp className="w-7 h-7 md:w-8 md:h-8" />
                 <h3 className="text-base md:text-lg font-medium">ממוצע התקדמות</h3>
@@ -410,15 +444,15 @@ export default function Goals() {
             </div>
           </div>
 
-          {/* ✅ דוחות ויזואליים */}
+          {/* דוחות ויזואליים */}
           {goals.length > 0 && (
             <div className="gsap-card grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
-              
-              {/* גרף progress RTL */}
+
               {activeGoalsChartData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors h-full flex flex-col">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-5 flex items-center gap-2" dir="rtl">
-                    <BarChart3 className="w-5 h-5 text-blue-500 flex-shrink-0" /> התקדמות יעדים פעילים
+                    <BarChart3 className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                    התקדמות יעדים פעילים
                   </h3>
                   <div className="flex items-center gap-4 mb-2 text-xs border-b border-gray-100 dark:border-gray-700 pb-3" dir="rtl">
                     <div className="flex items-center gap-1.5">
@@ -436,21 +470,28 @@ export default function Goals() {
                 </div>
               )}
 
-              {/* גרף עוגה */}
               {pieChartData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors h-full flex flex-col">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2" dir="rtl">
-                    <PieChartIcon className="w-5 h-5 text-purple-500 flex-shrink-0" /> התפלגות יעדים לקטגוריה
+                    <PieChartIcon className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                    התפלגות יעדים לקטגוריה
                   </h3>
                   <div className="flex-1 flex flex-col items-center justify-center min-h-[250px]">
                     <ResponsiveContainer width="100%" height={250}>
                       <PieChart>
-                        <Pie data={pieChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value" stroke="none">
+                        <Pie
+                          data={pieChartData} cx="50%" cy="50%"
+                          innerRadius={60} outerRadius={90}
+                          paddingAngle={3} dataKey="value" stroke="none"
+                        >
                           {pieChartData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={getCategoryColor(entry.name)} />
                           ))}
                         </Pie>
-                        <RechartsTooltip contentStyle={{ borderRadius: '10px' }} cursor={{fill: 'transparent'}} />
+                        <RechartsTooltip
+                          contentStyle={{ borderRadius: '10px' }}
+                          cursor={{ fill: 'transparent' }}
+                        />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -468,38 +509,86 @@ export default function Goals() {
                   <Tag className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   ניהול קטגוריות ליעדים
                 </h2>
-                <button onClick={() => setShowCategoryManager(false)} className="p-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-lg">
-                  <X className="w-5 h-5 text-gray-500" />
+                <button
+                  onClick={() => setShowCategoryManager(false)}
+                  className="p-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-lg"
+                >
+                  <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                 </button>
               </div>
               <div className="p-4 md:p-5">
                 <div className="space-y-2 mb-5">
                   {categories.map((cat, index) => (
-                    <div key={cat.name + index} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={(e) => handleDrop(e, index)} onDragEnd={() => {setDragIndex(null); setDragOver(null);}}
-                      className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${dragOver === index ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 scale-[1.01]' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'}`}>
+                    <div
+                      key={cat.name + index}
+                      draggable
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      onDragEnd={() => { setDragIndex(null); setDragOver(null); }}
+                      className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                        dragOver === index
+                          ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 scale-[1.01]'
+                          : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+                      }`}
+                    >
                       <GripVertical className="w-4 h-4 text-gray-400 cursor-grab flex-shrink-0" />
                       {editingCat?.index === index ? (
                         <div className="flex flex-1 items-center gap-2 flex-wrap">
-                          <input type="color" value={editingCat.color} onChange={(e) => setEditingCat({...editingCat, color: e.target.value})} className="w-9 h-9 rounded cursor-pointer border border-gray-300" />
-                          <input type="text" value={editingCat.name} onChange={(e) => setEditingCat({...editingCat, name: e.target.value})} className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" />
-                          <button onClick={handleUpdateCategory} className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm">שמור</button>
-                          <button onClick={() => setEditingCat(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm">ביטול</button>
+                          <input
+                            type="color" value={editingCat.color}
+                            onChange={(e) => setEditingCat({ ...editingCat, color: e.target.value })}
+                            className="w-9 h-9 rounded cursor-pointer border border-gray-300"
+                          />
+                          <input
+                            type="text" value={editingCat.name}
+                            onChange={(e) => setEditingCat({ ...editingCat, name: e.target.value })}
+                            className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                          />
+                          <button onClick={handleUpdateCategory} className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 transition-colors">שמור</button>
+                          <button onClick={() => setEditingCat(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 transition-colors">ביטול</button>
                         </div>
                       ) : (
                         <>
                           <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                           <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
-                          <button onClick={() => setEditingCat({ index, name: cat.name, color: cat.color })} className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleDeleteCategory(index)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button
+                            onClick={() => setEditingCat({ index, name: cat.name, color: cat.color })}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCategory(index)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </>
                       )}
                     </div>
                   ))}
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex flex-wrap gap-2">
-                  <input type="color" value={newCatColor} onChange={(e) => setNewCatColor(e.target.value)} className="w-10 h-10 rounded cursor-pointer border border-gray-300" />
-                  <input type="text" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()} placeholder="שם הקטגוריה" className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" />
-                  <button onClick={handleAddCategory} disabled={!newCatName.trim()} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-purple-700 transition-colors">הוסף</button>
+                  <input
+                    type="color" value={newCatColor}
+                    onChange={(e) => setNewCatColor(e.target.value)}
+                    className="w-10 h-10 rounded cursor-pointer border border-gray-300"
+                  />
+                  <input
+                    type="text" value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                    placeholder="שם הקטגוריה"
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                  />
+                  <button
+                    onClick={handleAddCategory}
+                    disabled={!newCatName.trim()}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-purple-700 transition-colors"
+                  >
+                    הוסף
+                  </button>
                 </div>
               </div>
             </div>
@@ -517,25 +606,54 @@ export default function Goals() {
               <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">שם היעד *</label>
-                  <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="למשל: חיסכון לרכישת מכשיר לייזר" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm" required />
+                  <input
+                    type="text" value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="למשל: חיסכון לרכישת מכשיר לייזר"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סכום יעד (₪) *</label>
-                  <input type="number" value={formData.target} onChange={(e) => setFormData({ ...formData, target: e.target.value })} placeholder="5000" min="1" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm" required />
+                  <input
+                    type="number" value={formData.target}
+                    onChange={(e) => setFormData({ ...formData, target: e.target.value })}
+                    placeholder="5000" min="1"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">סכום נוכחי (₪)</label>
-                  <input type="number" value={formData.current} onChange={(e) => setFormData({ ...formData, current: e.target.value })} placeholder="0" min="0" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm" />
+                  <input
+                    type="number" value={formData.current}
+                    onChange={(e) => setFormData({ ...formData, current: e.target.value })}
+                    placeholder="0" min="0"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תאריך יעד *</label>
-                  <input type="date" value={formData.deadline} onChange={(e) => setFormData({ ...formData, deadline: e.target.value })} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm" required />
+                  <input
+                    type="date" value={formData.deadline}
+                    onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">קטגוריה</label>
                   <div className="flex gap-2">
-                    <div className="w-10 h-10 rounded-lg border border-gray-300 flex-shrink-0 transition-colors" style={{ backgroundColor: getCategoryColor(formData.category) }} />
-                    <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm">
+                    <div
+                      className="w-10 h-10 rounded-lg border border-gray-300 flex-shrink-0 transition-colors"
+                      style={{ backgroundColor: getCategoryColor(formData.category) }}
+                    />
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                    >
                       {categories.map(cat => (
                         <option key={cat.name} value={cat.name}>{cat.name}</option>
                       ))}
@@ -543,34 +661,58 @@ export default function Goals() {
                   </div>
                 </div>
                 <div className="md:col-span-2 flex gap-3">
-                  <button type="submit" className="flex-1 bg-[#e5007e] text-white py-2 px-4 rounded-lg hover:bg-[#b30062] transition-colors font-medium text-sm">שמור יעד</button>
-                  <button type="button" onClick={() => setShowForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium text-sm">ביטול</button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[#e5007e] text-white py-2 px-4 rounded-lg hover:bg-[#b30062] transition-colors font-medium text-sm"
+                  >
+                    שמור יעד
+                  </button>
+                  <button
+                    type="button" onClick={() => setShowForm(false)}
+                    className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium text-sm"
+                  >
+                    ביטול
+                  </button>
                 </div>
               </form>
             </div>
           )}
 
-          {/* סינון קטגוריות */}
+          {/* ✅ סינון קטגוריות */}
           {goals.length > 0 && (
             <div className="gsap-card flex items-center gap-2 mb-5 flex-wrap">
               <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <button
                 onClick={() => setActiveCategory('הכל')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                  activeCategory === 'הכל' ? 'bg-[#e5007e] text-white border-[#e5007e]' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300'
+                  activeCategory === 'הכל'
+                    ? 'bg-[#e5007e] text-white border-[#e5007e]'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
                 }`}
               >
-                הכל <span className="bg-gray-100 text-gray-500 px-1.5 rounded-full text-[10px]">{goals.length}</span>
+                הכל
+                {/* ✅ תיקון: badge נכון ב-dark mode */}
+                <span className={`px-1.5 rounded-full text-[10px] font-bold ${
+                  activeCategory === 'הכל'
+                    ? 'bg-white/25 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                }`}>
+                  {goals.length}
+                </span>
               </button>
-              
+
               {categories.map(cat => {
                 const count = goals.filter(g => g.category === cat.name).length;
                 if (count === 0) return null;
                 const isActive = activeCategory === cat.name;
                 return (
-                  <button key={cat.name} onClick={() => setActiveCategory(cat.name)}
+                  <button
+                    key={cat.name}
+                    onClick={() => setActiveCategory(cat.name)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                      isActive ? 'text-gray-900 dark:text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      isActive
+                        ? 'text-gray-900 dark:text-white'
+                        : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                     style={{
                       backgroundColor: isActive ? cat.color + '20' : undefined,
@@ -579,7 +721,11 @@ export default function Goals() {
                   >
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                     {cat.name}
-                    <span className="px-1.5 rounded-full text-[10px] font-bold bg-white/50">{count}</span>
+                    <span className={`px-1.5 rounded-full text-[10px] font-bold ${
+                      isActive ? 'bg-white/30' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                    }`}>
+                      {count}
+                    </span>
                   </button>
                 );
               })}
@@ -596,7 +742,8 @@ export default function Goals() {
                 const catColor = getCategoryColor(goal.category);
 
                 return (
-                  <div key={goal.id}
+                  <div
+                    key={goal.id}
                     className={`gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-lg border-2 transition-colors ${
                       isCompleted ? 'border-green-400 dark:border-green-500' : 'border-gray-200 dark:border-gray-700'
                     }`}
@@ -608,14 +755,18 @@ export default function Goals() {
                           {isCompleted && <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />}
                           <h3 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white leading-tight">{goal.title}</h3>
                         </div>
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full"
-                          style={{ backgroundColor: catColor + '20', color: catColor }}>
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full"
+                          style={{ backgroundColor: catColor + '20', color: catColor }}
+                        >
                           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catColor }} />
                           {goal.category}
                         </span>
                       </div>
-                      <button onClick={() => handleDelete(goal.id)}
-                        className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg transition-colors flex-shrink-0">
+                      <button
+                        onClick={() => handleDelete(goal.id)}
+                        className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg transition-colors flex-shrink-0"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -635,9 +786,11 @@ export default function Goals() {
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{progress.toFixed(0)}% הושלם</span>
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          daysLeft <= 0 ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' :
-                          daysLeft <= 7 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' :
-                          'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          daysLeft <= 0
+                            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                            : daysLeft <= 7
+                            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                         }`}>
                           {daysLeft > 0 ? `${daysLeft} ימים נותרו` : 'פג תוקף'}
                         </span>
@@ -659,20 +812,31 @@ export default function Goals() {
                             className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-[#e5007e]"
                             onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) handleAddMoney(goal.id); }}
                           />
-                          <button onClick={() => handleAddMoney(goal.id)}
-                            className="flex-shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium" title="הוסף כסף">
+                          <button
+                            onClick={() => handleAddMoney(goal.id)}
+                            className="flex-shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                            title="הוסף כסף"
+                          >
                             <ArrowUp className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleSubtractMoney(goal.id)}
-                            className="flex-shrink-0 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium" title="הפחת כסף">
+                          <button
+                            onClick={() => handleSubtractMoney(goal.id)}
+                            className="flex-shrink-0 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                            title="הפחת כסף"
+                          >
                             <ArrowDown className="w-4 h-4" />
                           </button>
                         </div>
-                        {/* ✅ כפתור סמן כהושלם תמיד בצבע ורוד מותג */}
-                        <button onClick={() => handleComplete(goal.id)}
-                          className="w-full px-4 py-2 bg-[#e5007e] text-white rounded-lg hover:bg-[#b30062] transition-colors text-sm font-medium">
+                        <button
+                          onClick={() => handleComplete(goal.id)}
+                          className="w-full px-4 py-2 bg-[#e5007e] text-white rounded-lg hover:bg-[#b30062] transition-colors text-sm font-medium"
+                        >
                           ✓ סמן כהושלם
                         </button>
+                        {/* ✅ hint חזר */}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                          💡 הכנס סכום ולחץ ↑ להוסיף | ↓ להפחית | Enter להוסיף
+                        </p>
                       </div>
                     )}
 
@@ -689,7 +853,10 @@ export default function Goals() {
             <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
               <Filter className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
               <p className="text-gray-500 dark:text-gray-400 font-medium">אין יעדים בקטגוריה "{activeCategory}"</p>
-              <button onClick={() => setActiveCategory('הכל')} className="mt-3 text-[#e5007e] text-sm font-medium hover:underline">
+              <button
+                onClick={() => setActiveCategory('הכל')}
+                className="mt-3 text-[#e5007e] text-sm font-medium hover:underline"
+              >
                 הצג את כל היעדים
               </button>
             </div>
@@ -698,8 +865,10 @@ export default function Goals() {
               <Target className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" />
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">אין יעדים עדיין</h3>
               <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">התחל להגדיר יעדים פיננסיים ועקוב אחרי ההתקדמות!</p>
-              <button onClick={handleNewGoalClick}
-                className="bg-[#e5007e] text-white px-6 py-2.5 rounded-lg hover:bg-[#b30062] transition-colors font-medium text-sm">
+              <button
+                onClick={handleNewGoalClick}
+                className="bg-[#e5007e] text-white px-6 py-2.5 rounded-lg hover:bg-[#b30062] transition-colors font-medium text-sm"
+              >
                 הוסף יעד ראשון
               </button>
             </div>
