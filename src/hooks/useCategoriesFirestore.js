@@ -6,7 +6,6 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
-// ✅ תוקן ל-'goal' (בלי s) כדי שיתאים לבקשה מהעמוד!
 const DEFAULT_CATEGORIES = {
   goal: [
     { name: 'חיסכון',        color: '#8b5cf6', order: 0 },
@@ -33,16 +32,16 @@ const DEFAULT_CATEGORIES = {
 export function useCategoriesFirestore(type) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // ✅ useRef מונע זריעה כפולה בצורה בטוחה
   const seededRef = useRef(false);
 
   useEffect(() => {
     seededRef.current = false;
     let unsubscribeSnapshot = () => {};
+    let offlineTimer = null;
 
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       unsubscribeSnapshot();
+      if (offlineTimer) clearTimeout(offlineTimer);
 
       if (!user) {
         setCategories([]);
@@ -50,21 +49,44 @@ export function useCategoriesFirestore(type) {
         return;
       }
 
+      const seedKey = `seeded_${user.uid}_${type}`;
+
       const q = query(
         collection(db, 'categories'),
         where('userId', '==', user.uid),
         where('type', '==', type)
       );
 
-      unsubscribeSnapshot = onSnapshot(q,
+      // ✅ includeMetadataChanges: true — מאפשר זיהוי cache vs server
+      unsubscribeSnapshot = onSnapshot(q, { includeMetadataChanges: true },
         async (snap) => {
-          if (snap.empty && !seededRef.current) {
-            // ✅ זריעת ברירות מחדל
+          if (offlineTimer) clearTimeout(offlineTimer);
+
+          // ✅ תיקון 1: snapshot ריק מה-cache → המתן לשרת, אבל עם timeout
+          if (snap.empty && snap.metadata.fromCache) {
+            offlineTimer = setTimeout(() => {
+              setLoading(false); // fallback אם השרת לא עונה
+            }, 8000);
+            return;
+          }
+
+          // ✅ תיקון 3: התעלם מ-metadata-only updates (כפילויות רינדור)
+          // רק אם יש שינוי בנתונים עצמם נמשיך
+          if (!snap.empty && snap.metadata.hasPendingWrites && snap.metadata.fromCache) {
+            // עדכון אופטימיסטי מקומי — תקין, נמשיך לעבד
+          }
+
+          const hasSeededLocally = localStorage.getItem(seedKey) === 'true';
+
+          // ✅ תיקון 2: seed רק אם ריק מהשרת (לא cache) ולא זרענו כבר
+          if (snap.empty && !snap.metadata.fromCache && !seededRef.current && !hasSeededLocally) {
             seededRef.current = true;
+            localStorage.setItem(seedKey, 'true');
+
             try {
               const batch = writeBatch(db);
               const defaultsToUse = DEFAULT_CATEGORIES[type] || [];
-              
+
               defaultsToUse.forEach(cat => {
                 const ref = doc(collection(db, 'categories'));
                 batch.set(ref, {
@@ -75,19 +97,22 @@ export function useCategoriesFirestore(type) {
                 });
               });
               await batch.commit();
-              
-              // ✅ תיקון קריטי: חייבים לעצור את הספינר כאן למקרה ש-Firebase לא שולח סנאפשוט חדש
               setLoading(false);
-              
             } catch (err) {
               console.error('seed error:', err);
               setLoading(false);
             }
           } else {
-            // ✅ שליפה רגילה ומיון
+            // ✅ שליפה רגילה — כולל snapshot ריק לאחר מחיקה לגיטימית
             const data = snap.docs
               .map(d => ({ id: d.id, ...d.data() }))
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+            // ✅ תיקון 2: אם יש קטגוריות — עדכן localStorage (לתרחיש דפדפן חדש)
+            if (data.length > 0) {
+              localStorage.setItem(seedKey, 'true');
+            }
+
             setCategories(data);
             setLoading(false);
           }
@@ -102,6 +127,7 @@ export function useCategoriesFirestore(type) {
     return () => {
       unsubscribeAuth();
       unsubscribeSnapshot();
+      if (offlineTimer) clearTimeout(offlineTimer);
     };
   }, [type]);
 
