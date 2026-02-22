@@ -2,33 +2,45 @@ import { TrendingUp, Plus, Trash2, Edit2, Search, SlidersHorizontal, X, ChevronD
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useToast } from '../../context/ToastContext';
 import { useTransactions } from '../../hooks/useTransactions';
+import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
 import { db } from '../../firebase';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
-
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
 const HEADER_HEIGHT = 73;
 
-const DEFAULT_CATEGORIES = [
-  { name: 'משכורת', color: '#10b981' },
-  { name: 'עבודה נוספת', color: '#3b82f6' },
-  { name: 'מתנה', color: '#f59e0b' },
-  { name: 'השקעה', color: '#8b5cf6' },
-  { name: 'אחר', color: '#6b7280' },
-];
-
 export default function Income() {
   const { showToast } = useToast();
-  const { transactions: incomes, loading, addTransaction } = useTransactions('income');
+  const { transactions: incomes, loading: loadingTransactions, addTransaction } = useTransactions('income');
+  
+  // ✅ יבוא קטגוריות מהענן באמצעות ה-Hook שלנו עם השמות הנכונים!
+  const { 
+    categories: cloudCategories, 
+    loading: catsLoading, 
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    reorderCategories
+  } = useCategoriesFirestore('income');
+
+  // ✅ State מקומי לקטגוריות כדי לאפשר גרירה ועדכון מיידי (Optimistic UI)
+  const [categories, setCategories] = useState([]);
+
+  // מסנכרן את ה-State המקומי כשהנתונים מהענן מתעדכנים
+  useEffect(() => {
+    setCategories(cloudCategories);
+  }, [cloudCategories]);
 
   const formRef = useRef(null);
   const categoryRef = useRef(null);
   const containerRef = useRef(null);
 
-  // ✅ תיקון: if (loading) return בתוך useGSAP, והref תמיד קיים
+  // ספינר משותף
+  const isLoading = loadingTransactions || catsLoading;
+
   useGSAP(() => {
-    if (loading) return;
+    if (isLoading) return;
     gsap.from('.gsap-card', {
       y: 30,
       opacity: 0,
@@ -37,12 +49,7 @@ export default function Income() {
       ease: 'power2.out',
       clearProps: 'all'
     });
-  }, { scope: containerRef, dependencies: [loading] });
-
-  const [categories, setCategories] = useState(() => {
-    const saved = localStorage.getItem('incomeCategories');
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
-  });
+  }, { scope: containerRef, dependencies: [isLoading] });
 
   const [showForm, setShowForm] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -57,9 +64,16 @@ export default function Income() {
   const [formData, setFormData] = useState({
     source: '',
     amount: '',
-    category: 'משכורת',
+    category: '',
     date: new Date().toISOString().split('T')[0]
   });
+
+  // בחירת קטגוריה דיפולטיבית
+  useEffect(() => {
+    if (categories.length > 0 && !formData.category) {
+      setFormData(prev => ({ ...prev, category: categories[0].name }));
+    }
+  }, [categories]);
 
   const [filters, setFilters] = useState({
     search: '',
@@ -74,7 +88,7 @@ export default function Income() {
   const scrollToRef = useCallback((ref) => {
     if (!ref?.current) return;
     setTimeout(() => {
-      const y = ref.current.getBoundingClientRect().top + window.pageYOffset - HEADER_HEIGHT - 20;
+      const y = ref.current.getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT - 20;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }, 100);
   }, []);
@@ -86,10 +100,6 @@ export default function Income() {
   useEffect(() => {
     if (showForm) scrollToRef(formRef);
   }, [showForm, scrollToRef]);
-
-  useEffect(() => {
-    localStorage.setItem('incomeCategories', JSON.stringify(categories));
-  }, [categories]);
 
   const categoryColorMap = useMemo(() =>
     Object.fromEntries(categories.map(c => [c.name, c.color])),
@@ -106,19 +116,20 @@ export default function Income() {
     const currentYear = now.getFullYear();
     const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
     const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-
+    
     const thisMonthIncomes = incomes.filter(i => {
       const d = new Date(i.date);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     });
+    
     const prevMonthIncomes = incomes.filter(i => {
       const d = new Date(i.date);
       return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
     });
-
+    
     const thisMonthTotal = thisMonthIncomes.reduce((s, i) => s + i.amount, 0);
     const prevMonthTotal = prevMonthIncomes.reduce((s, i) => s + i.amount, 0);
-
+    
     const avgMonthly = (() => {
       const monthMap = {};
       incomes.forEach(i => {
@@ -129,65 +140,86 @@ export default function Income() {
       const totals = Object.values(monthMap);
       return totals.length ? totals.reduce((s, v) => s + v, 0) / totals.length : 0;
     })();
-
+    
     const maxIncome = incomes.reduce((max, i) => i.amount > max.amount ? i : max, incomes[0]);
-
     let changePercent = null;
     let changeDir = 'same';
     if (prevMonthTotal > 0) {
       changePercent = ((thisMonthTotal - prevMonthTotal) / prevMonthTotal * 100).toFixed(1);
       changeDir = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'same';
     }
-
     return { thisMonthTotal, prevMonthTotal, avgMonthly, maxIncome, changePercent, changeDir };
   }, [incomes]);
 
+  // ✅ Drag & Drop חכם מול הענן (Optimistic UI)
   const handleDragStart = useCallback((index) => setDragIndex(index), []);
   const handleDragOver = useCallback((e, index) => { e.preventDefault(); setDragOver(index); }, []);
   const handleDragEnd = useCallback(() => { setDragIndex(null); setDragOver(null); }, []);
-
-  const handleDrop = useCallback((e, dropIndex) => {
+  
+  const handleDrop = useCallback(async (e, dropIndex) => {
     e.preventDefault();
     if (dragIndex === null || dragIndex === dropIndex) return;
+    
+    // מעדכנים קודם כל את ה-UI מיד
     const updated = [...categories];
     const [moved] = updated.splice(dragIndex, 1);
     updated.splice(dropIndex, 0, moved);
-    setCategories(updated);
+    
+    // Optimistic Update
+    setCategories(updated); 
     setDragIndex(null);
     setDragOver(null);
-    showToast('סדר הקטגוריות עודכן! 🔃', 'success');
-  }, [dragIndex, categories, showToast]);
+    
+    // ואז שומרים בענן ברקע
+    try {
+      await reorderCategories(updated);
+      showToast('סדר הקטגוריות עודכן! 🔃', 'success');
+    } catch {
+      showToast('שגיאה בשמירת הסדר לענן', 'error');
+      setCategories(cloudCategories); // במקרה של שגיאה, נחזיר את המצב לאחור
+    }
+  }, [dragIndex, categories, cloudCategories, reorderCategories, showToast]);
 
-  const handleAddCategory = useCallback(() => {
+  // ✅ פעולות קטגוריות מול ה-Hook שלנו
+  const handleAddCategory = useCallback(async () => {
     if (!newCatName.trim()) return;
     if (categories.find(c => c.name === newCatName.trim())) {
       showToast('קטגוריה עם שם זה כבר קיימת', 'error');
       return;
     }
-    setCategories(prev => [...prev, { name: newCatName.trim(), color: newCatColor }]);
-    setNewCatName('');
-    setNewCatColor('#10b981');
-    showToast('קטגוריה נוספה! 🎨', 'success');
-  }, [newCatName, newCatColor, categories, showToast]);
+    try {
+      await addCategory(newCatName.trim(), newCatColor);
+      setNewCatName('');
+      setNewCatColor('#10b981');
+      showToast('קטגוריה נוספה! 🎨', 'success');
+    } catch {
+      showToast('שגיאה בהוספת קטגוריה', 'error');
+    }
+  }, [newCatName, newCatColor, categories, addCategory, showToast]);
 
-  const handleUpdateCategory = useCallback(() => {
+  const handleUpdateCategory = useCallback(async () => {
     if (!editingCat) return;
-    setCategories(prev => prev.map((c, i) =>
-      i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c
-    ));
-    setEditingCat(null);
-    showToast('קטגוריה עודכנה! ✅', 'success');
-  }, [editingCat, showToast]);
+    try {
+      await updateCategory(editingCat.id, editingCat.name, editingCat.color);
+      setEditingCat(null);
+      showToast('קטגוריה עודכנה! ✅', 'success');
+    } catch {
+      showToast('שגיאה בעדכון קטגוריה', 'error');
+    }
+  }, [editingCat, updateCategory, showToast]);
 
-  const handleDeleteCategory = useCallback((index) => {
-    const catName = categories[index].name;
-    if (incomes.some(inc => inc.category === catName)) {
+  const handleDeleteCategory = useCallback(async (cat) => {
+    if (incomes.some(inc => inc.category === cat.name)) {
       showToast('לא ניתן למחוק קטגוריה בשימוש!', 'error');
       return;
     }
-    setCategories(prev => prev.filter((_, i) => i !== index));
-    showToast('קטגוריה נמחקה', 'success');
-  }, [categories, incomes, showToast]);
+    try {
+      await deleteCategory(cat.id);
+      showToast('קטגוריה נמחקה', 'success');
+    } catch {
+      showToast('שגיאה במחיקת קטגוריה', 'error');
+    }
+  }, [incomes, deleteCategory, showToast]);
 
   const filteredIncomes = useMemo(() => {
     let filtered = [...incomes];
@@ -262,7 +294,12 @@ export default function Income() {
         });
         showToast('ההכנסה נוספה בהצלחה! 💰', 'success');
       }
-      setFormData({ source: '', amount: '', category: categories[0]?.name || 'משכורת', date: new Date().toISOString().split('T')[0] });
+      setFormData({
+        source: '',
+        amount: '',
+        category: categories[0]?.name || '',
+        date: new Date().toISOString().split('T')[0]
+      });
       setShowForm(false);
       setEditingId(null);
     } catch (error) {
@@ -272,7 +309,12 @@ export default function Income() {
   }, [formData, editingId, categories, addTransaction, showToast]);
 
   const handleEdit = useCallback((income) => {
-    setFormData({ source: income.source, amount: income.amount.toString(), category: income.category, date: income.date });
+    setFormData({
+      source: income.source,
+      amount: income.amount.toString(),
+      category: income.category,
+      date: income.date
+    });
     setEditingId(income.id);
     setShowForm(true);
   }, []);
@@ -295,21 +337,23 @@ export default function Income() {
 
   const handleNewIncome = useCallback(() => {
     setEditingId(null);
-    setFormData({ source: '', amount: '', category: categories[0]?.name || 'משכורת', date: new Date().toISOString().split('T')[0] });
+    setFormData({
+      source: '',
+      amount: '',
+      category: categories[0]?.name || '',
+      date: new Date().toISOString().split('T')[0]
+    });
     setShowForm(true);
     if (showForm && formRef.current) scrollToRef(formRef);
   }, [categories, showForm, scrollToRef]);
 
   return (
-    // ✅ ref תמיד קיים - spinner בתוך הדיב!
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
-
-      {/* ✅ Spinner בתוך ה-div הראשי */}
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
             <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">טוען הכנסות...</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">טוען נתונים...</p>
           </div>
         </div>
       ) : (
@@ -423,7 +467,7 @@ export default function Income() {
                 </p>
                 <div className="space-y-2 mb-5">
                   {categories.map((cat, index) => (
-                    <div key={cat.name + index} draggable
+                    <div key={cat.id || cat.name + index} draggable
                       onDragStart={() => handleDragStart(index)}
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDrop={(e) => handleDrop(e, index)}
@@ -436,7 +480,7 @@ export default function Income() {
                       <div className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0">
                         <GripVertical className="w-4 h-4" />
                       </div>
-                      {editingCat?.index === index ? (
+                      {editingCat?.id === cat.id ? (
                         <div className="flex flex-1 items-center gap-2 flex-wrap">
                           <input type="color" value={editingCat.color}
                             onChange={(e) => setEditingCat({...editingCat, color: e.target.value})}
@@ -456,11 +500,11 @@ export default function Income() {
                           <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
                           <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">#{index + 1}</span>
                           <div className="flex items-center gap-1">
-                            <button onClick={() => setEditingCat({ index, name: cat.name, color: cat.color })}
+                            <button onClick={() => setEditingCat({ id: cat.id, name: cat.name, color: cat.color })}
                               className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => handleDeleteCategory(index)}
+                            <button onClick={() => handleDeleteCategory(cat)}
                               className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -528,6 +572,7 @@ export default function Income() {
                 <ChevronDown className={`w-4 h-4 transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`} />
               </button>
             </div>
+
             {showAdvancedFilters && (
               <div className="border-t border-gray-200 dark:border-gray-700 p-3 md:p-4 bg-gray-50 dark:bg-gray-800/50 transition-colors">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -707,11 +752,11 @@ export default function Income() {
                             <td className="py-4 px-6">
                               <div className="flex items-center justify-center gap-2">
                                 <button onClick={() => handleEdit(income)}
-                                  className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
+                                  className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="ערוך">
                                   <Edit2 className="w-4 h-4" />
                                 </button>
                                 <button onClick={() => handleDelete(income.id)}
-                                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="מחק">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>

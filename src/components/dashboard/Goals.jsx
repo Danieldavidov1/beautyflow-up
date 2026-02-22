@@ -2,28 +2,18 @@ import { Target, TrendingUp, Award, Plus, Trash2, CheckCircle, ArrowUp, ArrowDow
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '../../context/ToastContext';
 
-// ✅ Firebase Auth + Firestore
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 
-// ✅ GSAP
+import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
+
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
-// ✅ Recharts — רק לגרף עוגה
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const HEADER_HEIGHT = 73;
 
-const DEFAULT_CATEGORIES = [
-  { name: 'חיסכון',        color: '#8b5cf6' },
-  { name: 'הכנסות',       color: '#10b981' },
-  { name: 'השקעה',         color: '#3b82f6' },
-  { name: 'צמצום הוצאות', color: '#f97316' },
-  { name: 'אחר',           color: '#6b7280' },
-];
-
-// ✅ גרף progress bars מותאם RTL — ללא Recharts BarChart
 const GoalsProgressChart = ({ data }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -43,7 +33,6 @@ const GoalsProgressChart = ({ data }) => {
 
           return (
             <div key={idx} className="w-full">
-              {/* שם היעד וסכומים */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-1 sm:gap-2" dir="rtl">
                 <span className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate flex-1">
                   {item.name}
@@ -53,7 +42,6 @@ const GoalsProgressChart = ({ data }) => {
                 </span>
               </div>
 
-              {/* פס ה-progress */}
               <div className="w-full h-6 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden flex shadow-inner" dir="ltr">
                 <div
                   className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700 ease-out flex items-center justify-end pr-2"
@@ -68,7 +56,6 @@ const GoalsProgressChart = ({ data }) => {
                 <div className="h-full flex-1" />
               </div>
 
-              {/* תיוג תחתון */}
               <div className="flex justify-between mt-1.5 text-[11px] font-medium" dir="rtl">
                 <span className="text-emerald-600 dark:text-emerald-400">הושג</span>
                 <span className="text-gray-500 dark:text-gray-400">נותר: ₪{remaining.toLocaleString()}</span>
@@ -78,7 +65,6 @@ const GoalsProgressChart = ({ data }) => {
         })}
       </div>
 
-      {/* כפתור הרחבה/צמצום */}
       {hasMore && (
         <button
           onClick={() => setIsExpanded(!isExpanded)}
@@ -109,38 +95,51 @@ export default function Goals() {
   const [showForm, setShowForm] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
 
+  // ✅ תיקון: loading (לא loadingCategories)
+  const {
+    categories: cloudCategories,
+    loading: catsLoading,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    reorderCategories
+  } = useCategoriesFirestore('goal');
+
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    setCategories(cloudCategories);
+  }, [cloudCategories]);
+
   const [formData, setFormData] = useState({
     title: '',
     target: '',
     current: '',
     deadline: '',
-    category: 'חיסכון'
+    category: ''
   });
+
+  useEffect(() => {
+    if (categories.length > 0 && !formData.category) {
+      setFormData(prev => ({ ...prev, category: categories[0].name }));
+    }
+  }, [categories]);
 
   const [activeCategory, setActiveCategory] = useState('הכל');
-
-  // ✅ ניהול קטגוריות — localStorage (מותאם אישית, לא Firestore)
-  const [categories, setCategories] = useState(() => {
-    const saved = localStorage.getItem('goalCategories');
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
-  });
-
   const [editingCat, setEditingCat] = useState(null);
   const [newCatName, setNewCatName] = useState('');
-  const [newCatColor, setNewCatColor] = useState('#e5007e');
+  const [newCatColor, setNewCatColor] = useState('#8b5cf6');
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
-  useEffect(() => {
-    localStorage.setItem('goalCategories', JSON.stringify(categories));
-  }, [categories]);
-
   const categoryColorMap = useMemo(() =>
     Object.fromEntries(categories.map(c => [c.name, c.color])), [categories]);
+
   const getCategoryColor = useCallback((catName) =>
     categoryColorMap[catName] ?? '#6b7280', [categoryColorMap]);
 
-  // ✅ גלילה חכמה
+  const isLoading = loadingGoals || catsLoading;
+
   const handleNewGoalClick = () => {
     setShowForm(true);
     setTimeout(() => {
@@ -166,8 +165,6 @@ export default function Goals() {
     });
   };
 
-  // ✅ טעינת יעדים מ-Firestore בזמן אמת
-  // תיקון: dependency array מכיל [showToast] כדי להימנע מ-stale closure warning
   useEffect(() => {
     let unsubscribeSnapshot = () => {};
 
@@ -198,11 +195,10 @@ export default function Goals() {
       unsubscribeAuth();
       unsubscribeSnapshot();
     };
-  }, [showToast]); // ✅ תוקן: dependency מלא
+  }, [showToast]);
 
-  // ✅ GSAP — תיקון dependencies
   useGSAP(() => {
-    if (loadingGoals) return;
+    if (isLoading) return;
     gsap.from('.gsap-card', {
       y: 30,
       opacity: 0,
@@ -211,9 +207,8 @@ export default function Goals() {
       ease: 'power2.out',
       clearProps: 'all'
     });
-  }, { scope: containerRef, dependencies: [loadingGoals] });
+  }, { scope: containerRef, dependencies: [isLoading] });
 
-  // נתוני גרפים וסטטיסטיקות
   const filteredGoals = activeCategory === 'הכל'
     ? goals
     : goals.filter(g => g.category === activeCategory);
@@ -235,50 +230,71 @@ export default function Goals() {
     return Object.entries(map).map(([name, value]) => ({ name, value }));
   }, [goals]);
 
-  // ✅ ניהול קטגוריות
-  const handleAddCategory = () => {
+  const handleDragStart = useCallback((index) => setDragIndex(index), []);
+  const handleDragOver = useCallback((e, index) => { e.preventDefault(); setDragOver(index); }, []);
+  const handleDragEnd = useCallback(() => { setDragIndex(null); setDragOver(null); }, []);
+
+  const handleDrop = useCallback(async (e, dropIndex) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIndex) return;
+
+    const updated = [...categories];
+    const [moved] = updated.splice(dragIndex, 1);
+    updated.splice(dropIndex, 0, moved);
+
+    setCategories(updated);
+    setDragIndex(null);
+    setDragOver(null);
+
+    try {
+      await reorderCategories(updated);
+      showToast('סדר הקטגוריות עודכן! 🔃', 'success');
+    } catch {
+      showToast('שגיאה בשמירת הסדר לענן', 'error');
+      setCategories(cloudCategories);
+    }
+  }, [dragIndex, categories, cloudCategories, reorderCategories, showToast]);
+
+  const handleAddCategory = useCallback(async () => {
     if (!newCatName.trim()) return;
     if (categories.find(c => c.name === newCatName.trim())) {
       showToast('קטגוריה כבר קיימת', 'error');
       return;
     }
-    setCategories([...categories, { name: newCatName.trim(), color: newCatColor }]);
-    setNewCatName('');
-    showToast('קטגוריה נוספה!', 'success');
-  };
+    try {
+      await addCategory(newCatName.trim(), newCatColor);
+      setNewCatName('');
+      setNewCatColor('#8b5cf6');
+      showToast('קטגוריה נוספה!', 'success');
+    } catch {
+      showToast('שגיאה בהוספת קטגוריה', 'error');
+    }
+  }, [newCatName, newCatColor, categories, addCategory, showToast]);
 
-  const handleUpdateCategory = () => {
+  const handleUpdateCategory = useCallback(async () => {
     if (!editingCat) return;
-    setCategories(categories.map((c, i) =>
-      i === editingCat.index ? { name: editingCat.name, color: editingCat.color } : c));
-    setEditingCat(null);
-    showToast('קטגוריה עודכנה!', 'success');
-  };
+    try {
+      await updateCategory(editingCat.id, editingCat.name, editingCat.color);
+      setEditingCat(null);
+      showToast('קטגוריה עודכנה!', 'success');
+    } catch {
+      showToast('שגיאה בעדכון קטגוריה', 'error');
+    }
+  }, [editingCat, updateCategory, showToast]);
 
-  const handleDeleteCategory = (index) => {
-    const catName = categories[index].name;
-    if (goals.some(g => g.category === catName)) {
+  const handleDeleteCategory = useCallback(async (cat) => {
+    if (goals.some(g => g.category === cat.name)) {
       showToast('לא ניתן למחוק קטגוריה שיש בה יעדים!', 'error');
       return;
     }
-    setCategories(categories.filter((_, i) => i !== index));
-    showToast('קטגוריה נמחקה', 'success');
-  };
+    try {
+      await deleteCategory(cat.id);
+      showToast('קטגוריה נמחקה', 'success');
+    } catch {
+      showToast('שגיאה במחיקת קטגוריה', 'error');
+    }
+  }, [goals, deleteCategory, showToast]);
 
-  const handleDragStart = (index) => setDragIndex(index);
-  const handleDragOver = (e, index) => { e.preventDefault(); setDragOver(index); };
-  const handleDrop = (e, dropIndex) => {
-    e.preventDefault();
-    if (dragIndex === null || dragIndex === dropIndex) return;
-    const updated = [...categories];
-    const [moved] = updated.splice(dragIndex, 1);
-    updated.splice(dropIndex, 0, moved);
-    setCategories(updated);
-    setDragIndex(null);
-    setDragOver(null);
-  };
-
-  // ✅ ניהול יעדים Firebase — כולל try/catch מלא
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.target || !formData.deadline) {
@@ -299,7 +315,7 @@ export default function Goals() {
         userId: auth.currentUser.uid,
         createdAt: new Date()
       });
-      setFormData({ title: '', target: '', current: '', deadline: '', category: categories[0]?.name || 'אחר' });
+      setFormData({ title: '', target: '', current: '', deadline: '', category: categories[0]?.name || '' });
       setShowForm(false);
       showToast('היעד נוסף בהצלחה! 🎯', 'success');
     } catch (error) {
@@ -308,7 +324,6 @@ export default function Goals() {
     }
   }, [formData, categories, showToast]);
 
-  // ✅ תיקון: try/catch על כל פעולות Firebase
   const handleDelete = async (id) => {
     if (!confirm('האם אתה בטוח שברצונך למחוק יעד זה?')) return;
     try {
@@ -379,11 +394,11 @@ export default function Goals() {
 
   return (
     <div className="pt-2 pb-8 px-4 md:p-8 relative transition-colors" ref={containerRef}>
-      {loadingGoals ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
             <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">טוען יעדים...</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">טוען נתונים...</p>
           </div>
         </div>
       ) : (
@@ -447,7 +462,6 @@ export default function Goals() {
           {/* דוחות ויזואליים */}
           {goals.length > 0 && (
             <div className="gsap-card grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
-
               {activeGoalsChartData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors h-full flex flex-col">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-5 flex items-center gap-2" dir="rtl">
@@ -488,10 +502,7 @@ export default function Goals() {
                             <Cell key={`cell-${index}`} fill={getCategoryColor(entry.name)} />
                           ))}
                         </Pie>
-                        <RechartsTooltip
-                          contentStyle={{ borderRadius: '10px' }}
-                          cursor={{ fill: 'transparent' }}
-                        />
+                        <RechartsTooltip contentStyle={{ borderRadius: '10px' }} cursor={{ fill: 'transparent' }} />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -517,78 +528,95 @@ export default function Goals() {
                 </button>
               </div>
               <div className="p-4 md:p-5">
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 flex items-center gap-1.5">
+                  <GripVertical className="w-3.5 h-3.5" />
+                  גרור קטגוריות לשינוי הסדר
+                </p>
                 <div className="space-y-2 mb-5">
                   {categories.map((cat, index) => (
                     <div
-                      key={cat.name + index}
+                      key={cat.id || cat.name + index}
                       draggable
                       onDragStart={() => handleDragStart(index)}
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDrop={(e) => handleDrop(e, index)}
-                      onDragEnd={() => { setDragIndex(null); setDragOver(null); }}
+                      onDragEnd={handleDragEnd}
                       className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
                         dragOver === index
                           ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 scale-[1.01]'
+                          : dragIndex === index
+                          ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 opacity-50'
                           : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
                       }`}
                     >
-                      <GripVertical className="w-4 h-4 text-gray-400 cursor-grab flex-shrink-0" />
-                      {editingCat?.index === index ? (
+                      <div className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0">
+                        <GripVertical className="w-4 h-4" />
+                      </div>
+                      {editingCat?.id === cat.id ? (
                         <div className="flex flex-1 items-center gap-2 flex-wrap">
                           <input
                             type="color" value={editingCat.color}
                             onChange={(e) => setEditingCat({ ...editingCat, color: e.target.value })}
-                            className="w-9 h-9 rounded cursor-pointer border border-gray-300"
+                            className="w-9 h-9 rounded cursor-pointer border border-gray-300 dark:border-gray-600 flex-shrink-0 bg-transparent"
                           />
                           <input
                             type="text" value={editingCat.name}
                             onChange={(e) => setEditingCat({ ...editingCat, name: e.target.value })}
-                            className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                            className="flex-1 min-w-[100px] px-3 py-1.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
                           />
-                          <button onClick={handleUpdateCategory} className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 transition-colors">שמור</button>
-                          <button onClick={() => setEditingCat(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 transition-colors">ביטול</button>
+                          <button onClick={handleUpdateCategory} className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 font-medium transition-colors">✓ שמור</button>
+                          <button onClick={() => setEditingCat(null)} className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors">ביטול</button>
                         </div>
                       ) : (
                         <>
-                          <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                          <div className="w-5 h-5 rounded-full flex-shrink-0 border-2 border-white dark:border-gray-800 shadow-sm" style={{ backgroundColor: cat.color }} />
                           <span className="flex-1 text-sm font-medium text-gray-800 dark:text-gray-200">{cat.name}</span>
-                          <button
-                            onClick={() => setEditingCat({ index, name: cat.name, color: cat.color })}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCategory(index)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">#{index + 1}</span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditingCat({ id: cat.id, name: cat.name, color: cat.color })}
+                              className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCategory(cat)}
+                              className="p-1.5 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </>
                       )}
                     </div>
                   ))}
                 </div>
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex flex-wrap gap-2">
-                  <input
-                    type="color" value={newCatColor}
-                    onChange={(e) => setNewCatColor(e.target.value)}
-                    className="w-10 h-10 rounded cursor-pointer border border-gray-300"
-                  />
-                  <input
-                    type="text" value={newCatName}
-                    onChange={(e) => setNewCatName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
-                    placeholder="שם הקטגוריה"
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
-                  />
-                  <button
-                    onClick={handleAddCategory}
-                    disabled={!newCatName.trim()}
-                    className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-purple-700 transition-colors"
-                  >
-                    הוסף
-                  </button>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-1.5">
+                    <Plus className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                    הוסף קטגוריה חדשה
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="color" value={newCatColor}
+                      onChange={(e) => setNewCatColor(e.target.value)}
+                      className="w-10 h-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-transparent flex-shrink-0"
+                    />
+                    <input
+                      type="text" value={newCatName}
+                      onChange={(e) => setNewCatName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+                      placeholder="שם הקטגוריה"
+                      className="flex-1 min-w-[150px] px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
+                    />
+                    <button
+                      onClick={handleAddCategory}
+                      disabled={!newCatName.trim()}
+                      className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40 hover:bg-purple-700 transition-colors font-medium"
+                    >
+                      הוסף
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -646,7 +674,7 @@ export default function Goals() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">קטגוריה</label>
                   <div className="flex gap-2">
                     <div
-                      className="w-10 h-10 rounded-lg border border-gray-300 flex-shrink-0 transition-colors"
+                      className="w-10 h-10 rounded-lg border border-gray-300 dark:border-gray-600 flex-shrink-0 transition-colors"
                       style={{ backgroundColor: getCategoryColor(formData.category) }}
                     />
                     <select
@@ -678,7 +706,7 @@ export default function Goals() {
             </div>
           )}
 
-          {/* ✅ סינון קטגוריות */}
+          {/* סינון קטגוריות */}
           {goals.length > 0 && (
             <div className="gsap-card flex items-center gap-2 mb-5 flex-wrap">
               <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -691,7 +719,6 @@ export default function Goals() {
                 }`}
               >
                 הכל
-                {/* ✅ תיקון: badge נכון ב-dark mode */}
                 <span className={`px-1.5 rounded-full text-[10px] font-bold ${
                   activeCategory === 'הכל'
                     ? 'bg-white/25 text-white'
@@ -833,7 +860,6 @@ export default function Goals() {
                         >
                           ✓ סמן כהושלם
                         </button>
-                        {/* ✅ hint חזר */}
                         <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
                           💡 הכנס סכום ולחץ ↑ להוסיף | ↓ להפחית | Enter להוסיף
                         </p>

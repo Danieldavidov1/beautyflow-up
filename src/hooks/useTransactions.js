@@ -7,8 +7,13 @@ export function useTransactions(type) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // ✅ מאזין לשינויים ב-Auth - פותר את בעיית ה-GSAP וה-loading
+    // ✅ משתנה שמחזיק את ה-snapshot unsubscribe
+    let unsubscribeSnapshot = () => {};
+
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      // ✅ נקה snapshot קודם לפני שפותחים חדש
+      unsubscribeSnapshot();
+
       if (user) {
         const q = query(
           collection(db, 'transactions'),
@@ -17,38 +22,52 @@ export function useTransactions(type) {
           orderBy('date', 'desc')
         );
 
-        const unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
-          const data = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }));
-          setTransactions(data);
-          setLoading(false); // ✅ רק אחרי שהנתונים הגיעו
-        });
-
-        // ✅ מנקה snapshot listener כשמשתמש מתנתק
-        return () => unsubscribeSnapshot();
+        unsubscribeSnapshot = onSnapshot(q,
+          (snapshot) => {
+            const data = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            setTransactions(data);
+            setLoading(false);
+          },
+          (error) => {
+            console.error('useTransactions error:', error);
+            if (error.code === 'permission-denied') {
+              console.warn('Firestore permission denied for transactions');
+            }
+            setLoading(false);
+          }
+        );
       } else {
-        // ✅ משתמש לא מחובר - מאפס הכל
+        // משתמש לא מחובר
         setTransactions([]);
         setLoading(false);
       }
     });
 
-    return () => unsubscribeAuth();
+    // ✅ cleanup נכון — מנקה את שניהם
+    return () => {
+      unsubscribeAuth();
+      unsubscribeSnapshot();
+    };
   }, [type]);
 
   const addTransaction = async (transaction) => {
     const user = auth.currentUser;
     if (!user) return;
 
-    await addDoc(collection(db, 'transactions'), {
-      ...transaction,
-      userId: user.uid,
-      type,
-      // ✅ שומר את התאריך שהמשתמש בחר, לא תאריך עכשיו
-      createdAt: new Date().toISOString()
-    });
+    try {
+      await addDoc(collection(db, 'transactions'), {
+        ...transaction,
+        userId: user.uid,
+        type,
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('addTransaction error:', error);
+      throw error; // ✅ זורק כדי שהקומפוננט יוכל לתפוס
+    }
   };
 
   return { transactions, loading, addTransaction };
