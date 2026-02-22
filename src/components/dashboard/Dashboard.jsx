@@ -2,19 +2,20 @@ import {
   TrendingUp, TrendingDown, Wallet, ArrowUpCircle, ArrowDownCircle,
   DollarSign, Activity
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { useTransactions } from '../../hooks/useTransactions';
+import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
 import Reports from './Reports';
 
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
 const MONTHS_HE = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
-const PIE_COLORS = ['#e5007e', '#ef4444', '#f97316', '#8b5cf6', '#3b82f6', '#10b981', '#6b7280', '#f59e0b'];
+const FALLBACK_COLORS = ['#e5007e', '#ef4444', '#f97316', '#8b5cf6', '#3b82f6', '#10b981'];
 
 const CustomBarTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -47,10 +48,22 @@ export default function Dashboard({ currentPage }) {
   const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
   const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
 
-  const containerRef = useRef(null);
-  const isLoading = loadingIncomes || loadingExpenses;
+  // ✅ כל ה-Hooks חייבים להיות לפני כל return — כולל זה!
+  const { categories: expenseCategories, loading: catsLoading } = useCategoriesFirestore('expense');
 
-  // ✅ הפתרון: dependencies על isLoading, וה-ref תמיד קיים ב-DOM
+  const containerRef = useRef(null);
+
+  // ✅ categoryColorMap — חייב להיות לפני ה-return של Reports
+  const categoryColorMap = useMemo(() =>
+    Object.fromEntries(expenseCategories.map(c => [c.name, c.color])),
+  [expenseCategories]);
+
+  const getCategoryColor = useCallback((catName, index) => {
+    return categoryColorMap[catName] || FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+  }, [categoryColorMap]);
+
+  const isLoading = loadingIncomes || loadingExpenses || catsLoading;
+
   useGSAP(() => {
     if (isLoading) return;
     gsap.from('.gsap-card', {
@@ -63,19 +76,19 @@ export default function Dashboard({ currentPage }) {
     });
   }, { scope: containerRef, dependencies: [isLoading] });
 
+  // ✅ return מוקדם — רק אחרי כל ה-Hooks!
   if (currentPage === 'reports') return <Reports />;
 
-  // ✅ חישובים - רק כשיש נתונים
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  const thisMonthIncomes = isLoading ? [] : incomes.filter(i => {
+  const thisMonthIncomes = incomes.filter(i => {
     const d = new Date(i.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
-  const thisMonthExpenses = isLoading ? [] : expenses.filter(i => {
+  const thisMonthExpenses = expenses.filter(i => {
     const d = new Date(i.date);
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
@@ -89,17 +102,16 @@ export default function Dashboard({ currentPage }) {
     const date = new Date(currentYear, currentMonth - (5 - i), 1);
     const m = date.getMonth();
     const y = date.getFullYear();
-    const inc = (isLoading ? [] : incomes)
+    const inc = incomes
       .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
       .reduce((s, x) => s + x.amount, 0);
-    const exp = (isLoading ? [] : expenses)
+    const exp = expenses
       .filter(x => { const d = new Date(x.date); return d.getMonth() === m && d.getFullYear() === y; })
       .reduce((s, x) => s + x.amount, 0);
     return { name: MONTHS_HE[m], הכנסות: inc, הוצאות: exp };
   });
 
   const pieData = (() => {
-    if (isLoading) return [];
     const map = {};
     thisMonthExpenses.forEach(e => {
       map[e.category] = (map[e.category] || 0) + e.amount;
@@ -113,7 +125,7 @@ export default function Dashboard({ currentPage }) {
       .sort((a, b) => b.value - a.value);
   })();
 
-  const recentTransactions = isLoading ? [] : [
+  const recentTransactions = [
     ...incomes.map(i => ({ ...i, type: 'income' })),
     ...expenses.map(e => ({ ...e, type: 'expense' }))
   ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
@@ -121,11 +133,11 @@ export default function Dashboard({ currentPage }) {
   const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
   const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
-  const prevMonthIncome = (isLoading ? [] : incomes)
+  const prevMonthIncome = incomes
     .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
     .reduce((s, i) => s + i.amount, 0);
 
-  const prevMonthExpense = (isLoading ? [] : expenses)
+  const prevMonthExpense = expenses
     .filter(i => { const d = new Date(i.date); return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear; })
     .reduce((s, i) => s + i.amount, 0);
 
@@ -134,13 +146,10 @@ export default function Dashboard({ currentPage }) {
   const expenseChange = prevMonthExpense > 0
     ? ((totalExpenses - prevMonthExpense) / prevMonthExpense * 100).toFixed(1) : null;
 
-  const hasAnyData = !isLoading && (incomes.length > 0 || expenses.length > 0);
+  const hasAnyData = incomes.length > 0 || expenses.length > 0;
 
   return (
-    // ✅ ref תמיד קיים - לא עוזבים את הדיב הזה לעולם!
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
-
-      {/* ✅ Spinner בתוך הדיב הראשי - ref קיים תמיד */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
@@ -150,13 +159,11 @@ export default function Dashboard({ currentPage }) {
         </div>
       ) : (
         <>
-          {/* כותרת */}
           <div className="mb-6 md:mb-8 gsap-card">
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1 transition-colors">מסך הבית 🏠</h1>
             <p className="text-sm md:text-base text-gray-600 dark:text-gray-400 transition-colors">סקירה כללית של הפיננסים שלך</p>
           </div>
 
-          {/* כרטיס רווח/הפסד ראשי */}
           <div className={`gsap-card rounded-2xl p-6 md:p-8 mb-6 shadow-xl text-white transition-colors ${
             isProfit
               ? 'bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600'
@@ -181,7 +188,6 @@ export default function Dashboard({ currentPage }) {
             </p>
           </div>
 
-          {/* 3 כרטיסי סיכום */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
               <div className="flex items-center justify-between mb-3">
@@ -246,7 +252,6 @@ export default function Dashboard({ currentPage }) {
 
           {hasAnyData ? (
             <>
-              {/* גרף עמודות */}
               <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 mb-6 transition-colors">
                 <div className="flex items-center gap-2 mb-4">
                   <Activity className="w-5 h-5 text-gray-600 dark:text-gray-400" />
@@ -267,7 +272,6 @@ export default function Dashboard({ currentPage }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Pie + עסקאות אחרונות */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
                 <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 md:p-6 transition-colors">
                   <div className="flex items-center gap-2 mb-4">
@@ -280,8 +284,8 @@ export default function Dashboard({ currentPage }) {
                         <PieChart>
                           <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85}
                             paddingAngle={3} dataKey="value" stroke="none">
-                            {pieData.map((_, index) => (
-                              <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={getCategoryColor(entry.name, index)} />
                             ))}
                           </Pie>
                           <Tooltip content={<CustomPieTooltip />} />
@@ -292,7 +296,7 @@ export default function Dashboard({ currentPage }) {
                           <div key={entry.name} className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
                               <div className="w-3 h-3 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} />
+                                style={{ backgroundColor: getCategoryColor(entry.name, index) }} />
                               <span className="text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{entry.name}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -364,7 +368,6 @@ export default function Dashboard({ currentPage }) {
             </div>
           )}
 
-          {/* טיפ פיננסי */}
           <div className="gsap-card bg-gradient-to-r from-[#e5007e] to-[#ff4da6] rounded-xl p-4 md:p-6 text-white shadow-md">
             <h3 className="text-lg md:text-xl font-bold mb-1">💡 טיפ פיננסי</h3>
             <p className="text-sm md:text-base text-white/90">
