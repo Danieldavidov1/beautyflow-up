@@ -10,13 +10,16 @@ import {
 } from 'recharts';
 import { useToast } from '../../context/ToastContext';
 import { useTransactions } from '../../hooks/useTransactions';
+import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
 
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
 const MONTHS_HE_SHORT = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
 const MONTHS_HE_FULL = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-const COLORS = ['#e5007e','#10b981','#f59e0b','#3b82f6','#8b5cf6','#ef4444','#f97316','#6b7280'];
+
+// ✅ Fallback בלבד — לקטגוריות שנמחקו מ-Firebase
+const FALLBACK_COLORS = ['#e5007e','#10b981','#f59e0b','#3b82f6','#8b5cf6','#ef4444','#f97316','#6b7280'];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -49,9 +52,12 @@ const CustomPieTooltip = ({ active, payload }) => {
   );
 };
 
-const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
+// ✅ PieChartCard מקבל עכשיו colorMap במקום colorOffset
+const PieChartCard = ({ title, data, onExpand, colorMap }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
+  const getColor = (name, idx) => colorMap?.[name] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+
   return (
     <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors">
       <div className="p-4 md:p-5 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
@@ -66,8 +72,8 @@ const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
           <RechartsPie>
             <Pie data={dataWithTotal} cx="50%" cy="50%"
               innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none">
-              {dataWithTotal.map((_, idx) => (
-                <Cell key={idx} fill={COLORS[(idx + colorOffset) % COLORS.length]} />
+              {dataWithTotal.map((entry, idx) => (
+                <Cell key={idx} fill={getColor(entry.name, idx)} />
               ))}
             </Pie>
             <Tooltip content={<CustomPieTooltip />} />
@@ -80,7 +86,7 @@ const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
               <div key={item.name} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: COLORS[(idx + colorOffset) % COLORS.length] }} />
+                    style={{ backgroundColor: getColor(item.name, idx) }} />
                   <span className="text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -100,9 +106,12 @@ const PieChartCard = ({ title, data, onExpand, colorOffset = 0 }) => {
   );
 };
 
-const ExpandedModal = ({ title, data, onClose, colorOffset = 0 }) => {
+// ✅ ExpandedModal מקבל עכשיו colorMap במקום colorOffset
+const ExpandedModal = ({ title, data, onClose, colorMap }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
+  const getColor = (name, idx) => colorMap?.[name] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
       onClick={onClose}>
@@ -119,8 +128,8 @@ const ExpandedModal = ({ title, data, onClose, colorOffset = 0 }) => {
             <RechartsPie>
               <Pie data={dataWithTotal} cx="50%" cy="50%"
                 innerRadius={65} outerRadius={110} paddingAngle={3} dataKey="value" stroke="none">
-                {dataWithTotal.map((_, idx) => (
-                  <Cell key={idx} fill={COLORS[(idx + colorOffset) % COLORS.length]} />
+                {dataWithTotal.map((entry, idx) => (
+                  <Cell key={idx} fill={getColor(entry.name, idx)} />
                 ))}
               </Pie>
               <Tooltip content={<CustomPieTooltip />} />
@@ -135,20 +144,20 @@ const ExpandedModal = ({ title, data, onClose, colorOffset = 0 }) => {
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <div className="w-3.5 h-3.5 rounded-full"
-                        style={{ backgroundColor: COLORS[(idx + colorOffset) % COLORS.length] }} />
+                        style={{ backgroundColor: getColor(item.name, idx) }} />
                       <span className="font-medium text-gray-900 dark:text-white text-sm">{item.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-gray-900 dark:text-white">₪{item.value.toLocaleString()}</span>
                       <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
-                        style={{ backgroundColor: COLORS[(idx + colorOffset) % COLORS.length] }}>
+                        style={{ backgroundColor: getColor(item.name, idx) }}>
                         {pct}%
                       </span>
                     </div>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 overflow-hidden">
                     <div className="h-full rounded-full transition-all"
-                      style={{ width: `${barWidth}%`, backgroundColor: COLORS[(idx + colorOffset) % COLORS.length] }} />
+                      style={{ width: `${barWidth}%`, backgroundColor: getColor(item.name, idx) }} />
                   </div>
                 </div>
               );
@@ -169,10 +178,23 @@ export default function Reports() {
   const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
   const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
 
+  // ✅ שליפת קטגוריות מ-Firebase לצבעים דינמיים
+  const { categories: expenseCategories, loading: catsExpenseLoading } = useCategoriesFirestore('expense');
+  const { categories: incomeCategories, loading: catsIncomeLoading } = useCategoriesFirestore('income');
+
   const containerRef = useRef(null);
 
-  // ✅ תיקון: if (loading) return בתוך useGSAP + dependencies על loading
-  const loading = loadingIncomes || loadingExpenses;
+  // ✅ ספינר מחכה גם לקטגוריות
+  const loading = loadingIncomes || loadingExpenses || catsExpenseLoading || catsIncomeLoading;
+
+  // ✅ מפות צבעים דינמיות מ-Firebase
+  const expenseColorMap = useMemo(() =>
+    Object.fromEntries(expenseCategories.map(c => [c.name, c.color])),
+  [expenseCategories]);
+
+  const incomeColorMap = useMemo(() =>
+    Object.fromEntries(incomeCategories.map(c => [c.name, c.color])),
+  [incomeCategories]);
 
   useGSAP(() => {
     if (loading) return;
@@ -190,10 +212,9 @@ export default function Reports() {
   const [expandedChart, setExpandedChart] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
 
-  // ✅ שדרוג: סינון חודשי לטאב "ניתוח חודשי"
   const [monthlyFilter, setMonthlyFilter] = useState({
     showOnlyActive: false,
-    sortBy: 'month-asc', // month-asc | profit-desc | profit-asc | income-desc | expenses-desc
+    sortBy: 'month-asc',
   });
 
   const years = useMemo(() => {
@@ -259,7 +280,6 @@ export default function Reports() {
 
   const hasData = totalIncome > 0 || totalExpenses > 0;
 
-  // ✅ שדרוג: נתוני טאב חודשי עם סינון ומיון
   const filteredMonthlyData = useMemo(() => {
     let data = [...monthlyData];
     if (monthlyFilter.showOnlyActive) {
@@ -310,10 +330,7 @@ export default function Reports() {
   ];
 
   return (
-    // ✅ ref תמיד קיים - spinner בתוך ה-div!
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
-
-      {/* ✅ Spinner בתוך ה-div הראשי */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
@@ -492,8 +509,6 @@ export default function Reports() {
               {/* TAB: ניתוח חודשי */}
               {activeTab === 'monthly' && (
                 <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors">
-
-                  {/* ✅ שדרוג: פס סינון ומיון */}
                   <div className="p-3 md:p-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Filter className="w-4 h-4 text-gray-400" />
@@ -613,7 +628,7 @@ export default function Reports() {
                       title="התפלגות הוצאות 💸"
                       data={expensesCategoryData}
                       onExpand={() => setExpandedChart('expense')}
-                      colorOffset={0}
+                      colorMap={expenseColorMap}
                     />
                   ) : (
                     <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 dark:text-gray-500 transition-colors">
@@ -626,7 +641,7 @@ export default function Reports() {
                       title="התפלגות הכנסות 💰"
                       data={incomesCategoryData}
                       onExpand={() => setExpandedChart('income')}
-                      colorOffset={1}
+                      colorMap={incomeColorMap}
                     />
                   ) : (
                     <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 dark:text-gray-500 transition-colors">
@@ -641,12 +656,20 @@ export default function Reports() {
 
           {/* Modals */}
           {expandedChart === 'expense' && expensesCategoryData.length > 0 && (
-            <ExpandedModal title="התפלגות הוצאות 💸" data={expensesCategoryData}
-              onClose={() => setExpandedChart(null)} colorOffset={0} />
+            <ExpandedModal
+              title="התפלגות הוצאות 💸"
+              data={expensesCategoryData}
+              onClose={() => setExpandedChart(null)}
+              colorMap={expenseColorMap}
+            />
           )}
           {expandedChart === 'income' && incomesCategoryData.length > 0 && (
-            <ExpandedModal title="התפלגות הכנסות 💰" data={incomesCategoryData}
-              onClose={() => setExpandedChart(null)} colorOffset={1} />
+            <ExpandedModal
+              title="התפלגות הכנסות 💰"
+              data={incomesCategoryData}
+              onClose={() => setExpandedChart(null)}
+              colorMap={incomeColorMap}
+            />
           )}
         </>
       )}
