@@ -1,21 +1,35 @@
 import { Settings as SettingsIcon, Trash2, Download, Upload, AlertTriangle, LogOut } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { useToast } from '../../context/ToastContext';
-
-// ✅ Firebase Auth + Firestore
 import {
   collection, getDocs, addDoc, deleteDoc,
   doc, query, where, writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 import { signOut } from 'firebase/auth';
-
-// ✅ GSAP
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
-// אוסף הקולקציות של המשתמש
-const USER_COLLECTIONS = ['incomes', 'expenses', 'goals', 'budgets'];
+const USER_COLLECTIONS = ['incomes', 'expenses', 'goals', 'budgets', 'categories', 'categoryBudgets'];
+
+// ✅ תיקון 1: פונקציית עזר לחלוקת batch ל-chunks של max 500
+const BATCH_SIZE = 499;
+
+async function batchDeleteAll(userId) {
+  for (const col of USER_COLLECTIONS) {
+    const q = query(collection(db, col), where('userId', '==', userId));
+    const snapshot = await getDocs(q);
+    const docs = snapshot.docs;
+
+    // חלוקה ל-chunks
+    for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+      const chunk = docs.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach(d => batch.delete(doc(db, col, d.id)));
+      await batch.commit();
+    }
+  }
+}
 
 export default function Settings() {
   const { showToast } = useToast();
@@ -26,7 +40,6 @@ export default function Settings() {
 
   const containerRef = useRef(null);
 
-  // ✅ תיקון GSAP — dependencies מוגדרות
   useGSAP(() => {
     gsap.from('.gsap-card', {
       y: 30,
@@ -52,11 +65,6 @@ export default function Settings() {
         const snapshot = await getDocs(q);
         exportData[col] = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       }
-
-      // קטגוריות מ-localStorage (מותאם אישית)
-      exportData.incomeCategories = JSON.parse(localStorage.getItem('incomeCategories') || 'null');
-      exportData.expenseCategoriesFull = JSON.parse(localStorage.getItem('expenseCategoriesFull') || 'null');
-      exportData.goalCategories = JSON.parse(localStorage.getItem('goalCategories') || 'null');
 
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const link = document.createElement('a');
@@ -86,23 +94,30 @@ export default function Settings() {
       try {
         const data = JSON.parse(e.target.result);
 
-        // ייבוא קולקציות ל-Firestore
+        // ✅ תיקון 1: מחיקה בטוחה עם chunking (מגבלת 500 של Firestore)
+        await batchDeleteAll(userId);
+
+        // ✅ תיקון 2: ייבוא במקביל עם Promise.all לביצועים טובים יותר
         for (const col of USER_COLLECTIONS) {
           if (data[col]?.length) {
-            for (const item of data[col]) {
-              const { id, ...itemData } = item;
-              await addDoc(collection(db, col), { ...itemData, userId });
-            }
+            await Promise.all(
+              data[col].map(item => {
+                const { id, ...itemData } = item;
+                return addDoc(collection(db, col), { ...itemData, userId });
+              })
+            );
           }
         }
 
-        // שמירת קטגוריות ב-localStorage
-        if (data.incomeCategories)
-          localStorage.setItem('incomeCategories', JSON.stringify(data.incomeCategories));
-        if (data.expenseCategoriesFull)
-          localStorage.setItem('expenseCategoriesFull', JSON.stringify(data.expenseCategoriesFull));
-        if (data.goalCategories)
-          localStorage.setItem('goalCategories', JSON.stringify(data.goalCategories));
+        // ניקוי localStorage — תמיכה בגיבויים ישנים + איפוס seed flags
+        ['incomeCategories', 'expenseCategoriesFull', 'goalCategories'].forEach(k =>
+          localStorage.removeItem(k));
+
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith(`seeded_${userId}`)) {
+            localStorage.removeItem(key);
+          }
+        });
 
         showToast('הנתונים יובאו בהצלחה! ✅', 'success');
         setTimeout(() => window.location.reload(), 1500);
@@ -114,7 +129,6 @@ export default function Settings() {
       }
     };
     reader.readAsText(file);
-    // איפוס input כדי לאפשר בחירה חוזרת
     event.target.value = '';
   };
 
@@ -125,25 +139,20 @@ export default function Settings() {
 
     setIsClearing(true);
     try {
-      const batch = writeBatch(db);
-      let deleteCount = 0;
+      // ✅ תיקון 1: chunked batch delete
+      await batchDeleteAll(userId);
 
-      for (const col of USER_COLLECTIONS) {
-        const q = query(collection(db, col), where('userId', '==', userId));
-        const snapshot = await getDocs(q);
-        snapshot.docs.forEach(d => {
-          batch.delete(doc(db, col, d.id));
-          deleteCount++;
-        });
-      }
-
-      await batch.commit();
-
-      // ניקוי localStorage
+      // ניקוי localStorage + seed flags
       ['incomeCategories', 'expenseCategoriesFull', 'goalCategories'].forEach(k =>
         localStorage.removeItem(k));
 
-      showToast(`נמחקו ${deleteCount} רשומות בהצלחה! 🗑️`, 'success');
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(`seeded_${userId}`)) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      showToast('כל הנתונים נמחקו בהצלחה! 🗑️', 'success');
       setShowConfirm(false);
       setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
@@ -154,7 +163,6 @@ export default function Settings() {
     }
   };
 
-  // ✅ התנתקות
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -212,7 +220,7 @@ export default function Settings() {
             </div>
           </div>
           <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm">
-            שמור את כל הנתונים (הכנסות, הוצאות, תקציב, יעדים) לקובץ JSON.
+            שמור את כל הנתונים (הכנסות, הוצאות, תקציב, יעדים וקטגוריות) לקובץ JSON.
           </p>
           <button
             onClick={handleExportAll}
@@ -237,7 +245,7 @@ export default function Settings() {
             </div>
           </div>
           <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm">
-            טען קובץ גיבוי קודם ושחזר את כל הנתונים.
+            טען קובץ גיבוי קודם ושחזר את כל הנתונים. פעולה זו תדרוס נתונים קיימים.
           </p>
           <label className={`block w-full py-2.5 md:py-3 px-4 rounded-lg transition-colors font-medium text-center text-sm ${
             isImporting
@@ -319,7 +327,7 @@ export default function Settings() {
           <li>• ייצא את הנתונים באופן קבוע לגיבוי</li>
           <li>• שמור את קובץ הגיבוי במקום בטוח (Google Drive, Dropbox)</li>
           <li>• לפני מחיקת נתונים — ודא שיש לך גיבוי!</li>
-          <li>• קובץ הגיבוי כולל את כל המידע והקטגוריות המותאמות אישית</li>
+          <li>• קובץ הגיבוי כולל כעת גם את צבעי הקטגוריות והתקציבים החדשים</li>
           <li>• הנתונים מסונכרנים ל-Firebase ונגישים מכל מכשיר</li>
         </ul>
       </div>
