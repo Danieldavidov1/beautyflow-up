@@ -1,4 +1,4 @@
-import { LayoutDashboard, TrendingUp, TrendingDown, Target, Calculator, BarChart3, Settings, X } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, TrendingDown, Target, Calculator, BarChart3, Settings, X, CheckSquare } from 'lucide-react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'מסך הבית', path: 'dashboard' },
@@ -7,6 +7,8 @@ const menuItems = [
   { icon: Calculator, label: 'תקציב', path: 'budget' },
   { icon: BarChart3, label: 'דוחות', path: 'reports' },
   { icon: Target, label: 'יעדים', path: 'goals' },
+  // ✅ הוספת פריט התפריט "משימות" החדש למערך הניווט
+  { icon: CheckSquare, label: 'משימות', path: 'tasks' },
   { icon: Settings, label: 'הגדרות', path: 'settings' },
 ];
 
@@ -49,7 +51,7 @@ export default function Sidebar({ currentPage = 'dashboard', setCurrentPage = ()
           </button>
         </div>
 
-        <nav className="space-y-2">
+        <nav className="space-y-2 pb-32"> {/* הוספנו padding למטה כדי שהכפתורים לא יוסתרו ע"י קופסת השדרוג */}
           {menuItems.map((item) => (
             <button
               key={item.path}
