@@ -2,7 +2,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, Download, BarChart3,
   Maximize2, X, Award, AlertTriangle, Activity, Filter
 } from 'lucide-react';
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   LineChart, Line, PieChart as RechartsPie, Pie, Cell,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -11,14 +11,12 @@ import {
 import { useToast } from '../../context/ToastContext';
 import { useTransactions } from '../../hooks/useTransactions';
 import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
-
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
 const MONTHS_HE_SHORT = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יונ', 'יול', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
 const MONTHS_HE_FULL = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
-// ✅ Fallback בלבד — לקטגוריות שנמחקו מ-Firebase
 const FALLBACK_COLORS = ['#e5007e','#10b981','#f59e0b','#3b82f6','#8b5cf6','#ef4444','#f97316','#6b7280'];
 
 const CustomTooltip = ({ active, payload, label }) => {
@@ -52,7 +50,6 @@ const CustomPieTooltip = ({ active, payload }) => {
   );
 };
 
-// ✅ PieChartCard מקבל עכשיו colorMap במקום colorOffset
 const PieChartCard = ({ title, data, onExpand, colorMap }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
@@ -106,7 +103,6 @@ const PieChartCard = ({ title, data, onExpand, colorMap }) => {
   );
 };
 
-// ✅ ExpandedModal מקבל עכשיו colorMap במקום colorOffset
 const ExpandedModal = ({ title, data, onClose, colorMap }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   const dataWithTotal = data.map(d => ({ ...d, total }));
@@ -178,16 +174,13 @@ export default function Reports() {
   const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
   const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
 
-  // ✅ שליפת קטגוריות מ-Firebase לצבעים דינמיים
   const { categories: expenseCategories, loading: catsExpenseLoading } = useCategoriesFirestore('expense');
   const { categories: incomeCategories, loading: catsIncomeLoading } = useCategoriesFirestore('income');
 
   const containerRef = useRef(null);
 
-  // ✅ ספינר מחכה גם לקטגוריות
   const loading = loadingIncomes || loadingExpenses || catsExpenseLoading || catsIncomeLoading;
 
-  // ✅ מפות צבעים דינמיות מ-Firebase
   const expenseColorMap = useMemo(() =>
     Object.fromEntries(expenseCategories.map(c => [c.name, c.color])),
   [expenseCategories]);
@@ -211,11 +204,16 @@ export default function Reports() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [expandedChart, setExpandedChart] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
-
   const [monthlyFilter, setMonthlyFilter] = useState({
     showOnlyActive: false,
     sortBy: 'month-asc',
   });
+
+  // ✅ תיקון: איפוס tab לOverview בשינוי שנה
+  useEffect(() => {
+    setActiveTab('overview');
+    setMonthlyFilter({ showOnlyActive: false, sortBy: 'month-asc' });
+  }, [selectedYear]);
 
   const years = useMemo(() => {
     const s = new Set();
@@ -278,6 +276,22 @@ export default function Reports() {
   const bestMonth = useMemo(() => [...monthsWithActivity].sort((a, b) => b.profit - a.profit)[0], [monthsWithActivity]);
   const worstMonth = useMemo(() => [...monthsWithActivity].sort((a, b) => a.profit - b.profit)[0], [monthsWithActivity]);
 
+  // ✅ השוואה לשנה קודמת
+  const prevYearData = useMemo(() => {
+    const prevYear = selectedYear - 1;
+    const prevIncome = incomes
+      .filter(x => new Date(x.date).getFullYear() === prevYear)
+      .reduce((s, x) => s + x.amount, 0);
+    const prevExpenses = expenses
+      .filter(x => new Date(x.date).getFullYear() === prevYear)
+      .reduce((s, x) => s + x.amount, 0);
+    return { prevIncome, prevExpenses, prevProfit: prevIncome - prevExpenses };
+  }, [incomes, expenses, selectedYear]);
+
+  const incomeYoY = prevYearData.prevIncome > 0
+    ? (((totalIncome - prevYearData.prevIncome) / prevYearData.prevIncome) * 100).toFixed(1)
+    : null;
+
   const hasData = totalIncome > 0 || totalExpenses > 0;
 
   const filteredMonthlyData = useMemo(() => {
@@ -293,6 +307,13 @@ export default function Reports() {
       default: return data.sort((a, b) => a.month - b.month);
     }
   }, [monthlyData, monthlyFilter]);
+
+  // ✅ תיקון tfoot — מחשב לפי filteredMonthlyData
+  const filteredTotalIncome = useMemo(() =>
+    filteredMonthlyData.reduce((s, m) => s + m.income, 0), [filteredMonthlyData]);
+  const filteredTotalExpenses = useMemo(() =>
+    filteredMonthlyData.reduce((s, m) => s + m.expenses, 0), [filteredMonthlyData]);
+  const filteredNetProfit = filteredTotalIncome - filteredTotalExpenses;
 
   const handleExportYearly = useCallback(() => {
     const data = [
@@ -367,6 +388,15 @@ export default function Reports() {
                 <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
                   <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400" />
                 </div>
+                {incomeYoY !== null && (
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
+                    Number(incomeYoY) >= 0
+                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                      : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                  }`}>
+                    {Number(incomeYoY) >= 0 ? '+' : ''}{incomeYoY}%
+                  </span>
+                )}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">סך הכנסות</p>
               <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">₪{totalIncome.toLocaleString()}</p>
@@ -552,10 +582,19 @@ export default function Reports() {
                               {profit >= 0 ? '+' : ''}₪{profit.toLocaleString()}
                             </span>
                           </div>
-                          <div className="flex gap-4 text-sm">
+                          <div className="flex gap-4 text-sm mb-2">
                             <span className="text-green-600 dark:text-green-400">↑ ₪{m.income.toLocaleString()}</span>
                             <span className="text-red-500 dark:text-red-400">↓ ₪{m.expenses.toLocaleString()}</span>
                           </div>
+                          {/* ✅ progress bar מובייל */}
+                          {hasActivity && m.income > 0 && (
+                            <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${profit >= 0 ? 'bg-green-500' : 'bg-red-500'}`}
+                                style={{ width: `${Math.min(Math.abs(profit / (m.income || 1)) * 100, 100)}%` }}
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -604,15 +643,18 @@ export default function Reports() {
                           );
                         })}
                       </tbody>
+                      {/* ✅ tfoot מחושב לפי filteredMonthlyData */}
                       <tfoot className="bg-gray-50 dark:bg-gray-900/50 border-t-2 border-gray-200 dark:border-gray-700 transition-colors">
                         <tr>
-                          <td className="py-3.5 px-5 font-bold text-gray-900 dark:text-white">סה"כ {selectedYear}</td>
-                          <td className="py-3.5 px-5 font-bold text-green-600 dark:text-green-400">₪{totalIncome.toLocaleString()}</td>
-                          <td className="py-3.5 px-5 font-bold text-red-500 dark:text-red-400">₪{totalExpenses.toLocaleString()}</td>
-                          <td className={`py-3.5 px-5 font-bold ${netProfit >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-orange-500 dark:text-orange-400'}`}>
-                            {netProfit >= 0 ? '+' : ''}₪{netProfit.toLocaleString()}
+                          <td className="py-3.5 px-5 font-bold text-gray-900 dark:text-white">
+                            סה"כ {monthlyFilter.showOnlyActive ? `(${filteredMonthlyData.length} חודשים)` : selectedYear}
                           </td>
-                          <td className="py-3.5 px-5 font-bold dark:text-gray-300">{netProfit >= 0 ? '✅ רווח' : '⚠️ הפסד'}</td>
+                          <td className="py-3.5 px-5 font-bold text-green-600 dark:text-green-400">₪{filteredTotalIncome.toLocaleString()}</td>
+                          <td className="py-3.5 px-5 font-bold text-red-500 dark:text-red-400">₪{filteredTotalExpenses.toLocaleString()}</td>
+                          <td className={`py-3.5 px-5 font-bold ${filteredNetProfit >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-orange-500 dark:text-orange-400'}`}>
+                            {filteredNetProfit >= 0 ? '+' : ''}₪{filteredNetProfit.toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-5 font-bold dark:text-gray-300">{filteredNetProfit >= 0 ? '✅ רווח' : '⚠️ הפסד'}</td>
                         </tr>
                       </tfoot>
                     </table>

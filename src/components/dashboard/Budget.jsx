@@ -24,7 +24,6 @@ export default function Budget() {
   const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
   const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
 
-  // ✅ צבעים דינמיים מ-Firebase
   const { categories: expenseCategories, loading: catsLoading } = useCategoriesFirestore('expense');
 
   const [budget, setBudget] = useState({ income: 0, expenses: 0 });
@@ -35,13 +34,11 @@ export default function Budget() {
   const categoryBudgetRef = useRef(null);
   const containerRef = useRef(null);
 
-  // ✅ תיקון 2: useMemo כדי למנוע טעינה מחדש בכל render
   const { currentMonth, currentYear } = useMemo(() => {
     const now = new Date();
     return { currentMonth: now.getMonth(), currentYear: now.getFullYear() };
   }, []);
 
-  // ✅ מפת צבעים דינמית מ-Firebase
   const categoryColorMap = useMemo(() =>
     Object.fromEntries(expenseCategories.map(c => [c.name, c.color])),
   [expenseCategories]);
@@ -50,7 +47,6 @@ export default function Budget() {
     categoryColorMap[catName] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length],
   [categoryColorMap]);
 
-  // ✅ תיקון 1: onAuthStateChanged במקום auth.currentUser ישיר
   useEffect(() => {
     let unsubscribeBudget = () => {};
     let unsubscribeCats = () => {};
@@ -101,7 +97,6 @@ export default function Budget() {
     };
   }, [currentMonth, currentYear]);
 
-  // ✅ ספינר מחכה גם לקטגוריות
   const loading = loadingIncomes || loadingExpenses || loadingBudget || catsLoading;
 
   useGSAP(() => {
@@ -119,6 +114,7 @@ export default function Budget() {
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [tempBudget, setTempBudget] = useState({ income: 0, expenses: 0 });
+  // ✅ newCatName עכשיו ממופה ל-select מ-Firebase
   const [newCatName, setNewCatName] = useState('');
   const [newCatAmount, setNewCatAmount] = useState('');
   const [editingCat, setEditingCat] = useState(null);
@@ -142,6 +138,14 @@ export default function Budget() {
   useEffect(() => {
     setTempBudget(budget);
   }, [budget]);
+
+  // ✅ כשנפתח טופס הוספה, בחר קטגוריה ראשונה זמינה (שעוד לא תוקצבה)
+  useEffect(() => {
+    if (showAddCategory) {
+      const firstAvailable = expenseCategories.find(c => !categoryBudgets[c.name]);
+      setNewCatName(firstAvailable?.name || expenseCategories[0]?.name || '');
+    }
+  }, [showAddCategory, expenseCategories, categoryBudgets]);
 
   const thisMonthExpenses = useMemo(() =>
     expenses.filter(e => {
@@ -184,6 +188,15 @@ export default function Budget() {
     return [...new Set([...fromBudget, ...fromExpenses])];
   }, [categoryBudgets, expensesByCategory]);
 
+  // ✅ חישוב סיכום תקציב קטגוריות
+  const totalCategoryBudgeted = useMemo(() =>
+    Object.values(categoryBudgets).reduce((s, v) => s + v, 0),
+  [categoryBudgets]);
+
+  const totalCategorySpent = useMemo(() =>
+    allTrackedCategories.reduce((s, cat) => s + (expensesByCategory[cat] || 0), 0),
+  [allTrackedCategories, expensesByCategory]);
+
   const smartTips = useMemo(() => {
     const tips = [];
     if (expenseProgress > 100) {
@@ -211,6 +224,8 @@ export default function Budget() {
       showToast('אין להזין סכומים שליליים', 'error');
       return;
     }
+    // ✅ guard על auth.currentUser
+    if (!auth.currentUser) { showToast('יש להתחבר תחילה', 'error'); return; }
     try {
       const userId = auth.currentUser.uid;
       const q = query(collection(db, 'budgets'),
@@ -240,9 +255,15 @@ export default function Budget() {
 
   const handleAddCategoryBudget = useCallback(async () => {
     if (!newCatName.trim() || !newCatAmount || Number(newCatAmount) <= 0) {
-      showToast('נא למלא שם קטגוריה וסכום תקין', 'error');
+      showToast('נא לבחור קטגוריה ולהזין סכום תקין', 'error');
       return;
     }
+    // ✅ validation: כפילות
+    if (categoryBudgets[newCatName]) {
+      showToast(`תקציב לקטגוריה "${newCatName}" כבר קיים — ערוך אותו ישירות`, 'error');
+      return;
+    }
+    if (!auth.currentUser) { showToast('יש להתחבר תחילה', 'error'); return; }
     try {
       await addDoc(collection(db, 'categoryBudgets'), {
         category: newCatName.trim(),
@@ -251,7 +272,6 @@ export default function Budget() {
         month: currentMonth + 1,
         year: currentYear
       });
-      setNewCatName('');
       setNewCatAmount('');
       setShowAddCategory(false);
       showToast(`תקציב לקטגוריה "${newCatName.trim()}" נוסף! ✅`, 'success');
@@ -259,13 +279,14 @@ export default function Budget() {
       console.error(error);
       showToast('שגיאה בהוספת קטגוריה', 'error');
     }
-  }, [newCatName, newCatAmount, showToast, currentMonth, currentYear]);
+  }, [newCatName, newCatAmount, categoryBudgets, showToast, currentMonth, currentYear]);
 
   const handleUpdateCategoryBudget = useCallback(async (catName) => {
     if (!editingCat?.amount || Number(editingCat.amount) <= 0) {
       showToast('נא להזין סכום תקין', 'error');
       return;
     }
+    if (!auth.currentUser) { showToast('יש להתחבר תחילה', 'error'); return; }
     try {
       const q = query(collection(db, 'categoryBudgets'),
         where('userId', '==', auth.currentUser.uid),
@@ -286,6 +307,7 @@ export default function Budget() {
   }, [editingCat, showToast, currentMonth, currentYear]);
 
   const handleDeleteCategoryBudget = useCallback(async (catName) => {
+    if (!auth.currentUser) { showToast('יש להתחבר תחילה', 'error'); return; }
     try {
       const q = query(collection(db, 'categoryBudgets'),
         where('userId', '==', auth.currentUser.uid),
@@ -349,6 +371,11 @@ export default function Budget() {
   };
 
   const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+  // ✅ קטגוריות זמינות להוספה (שלא תוקצבו עדיין)
+  const availableCategories = useMemo(() =>
+    expenseCategories.filter(c => !categoryBudgets[c.name]),
+  [expenseCategories, categoryBudgets]);
 
   return (
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
@@ -575,26 +602,33 @@ export default function Budget() {
                 <Target className="w-5 h-5 text-[#e5007e]" />
                 תקציב לפי קטגוריה
               </h2>
-              <button onClick={() => setShowAddCategory(prev => !prev)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              <button
+                onClick={() => setShowAddCategory(prev => !prev)}
+                disabled={availableCategories.length === 0}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   showAddCategory ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-400' : 'bg-[#e5007e] text-white hover:bg-[#b30062]'
                 }`}>
                 <Plus className="w-4 h-4" />
-                הוסף קטגוריה
+                {availableCategories.length === 0 ? 'כל הקטגוריות תוקצבו' : 'הוסף קטגוריה'}
               </button>
             </div>
 
-            {/* טופס הוספת קטגוריה */}
+            {/* ✅ טופס הוספת קטגוריה — select מ-Firebase */}
             {showAddCategory && (
               <div className="p-4 md:p-5 bg-pink-50 dark:bg-pink-900/10 border-b border-pink-100 dark:border-pink-900/30">
                 <div className="flex flex-col sm:flex-row gap-3 items-end">
                   <div className="flex-1">
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">שם קטגוריה</label>
-                    <input type="text" value={newCatName}
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">קטגוריה</label>
+                    <select
+                      value={newCatName}
                       onChange={(e) => setNewCatName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddCategoryBudget()}
-                      placeholder="למשל: מוצרים, שכירות..."
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm" />
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm">
+                      {availableCategories.map(cat => (
+                        <option key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="flex-1">
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">תקציב חודשי (₪)</label>
@@ -609,7 +643,7 @@ export default function Budget() {
                       className="flex-1 sm:flex-none bg-[#e5007e] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#b30062] font-medium">
                       הוסף
                     </button>
-                    <button onClick={() => { setShowAddCategory(false); setNewCatName(''); setNewCatAmount(''); }}
+                    <button onClick={() => { setShowAddCategory(false); setNewCatAmount(''); }}
                       className="flex-1 sm:flex-none bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 font-medium">
                       ביטול
                     </button>
@@ -621,92 +655,127 @@ export default function Budget() {
             {/* רשימת קטגוריות עם Progress Bars */}
             <div className="p-4 md:p-5">
               {allTrackedCategories.length > 0 ? (
-                <div className="space-y-4">
-                  {allTrackedCategories.map((cat, idx) => {
-                    const budgeted = categoryBudgets[cat] || 0;
-                    const spent = expensesByCategory[cat] || 0;
-                    const percent = budgeted > 0 ? Math.min((spent / budgeted) * 100, 100) : 0;
-                    const isOver = budgeted > 0 && spent > budgeted;
-                    // ✅ צבע דינמי מ-Firebase עם fallback
-                    const catColor = getCategoryColor(cat, idx);
-                    return (
-                      <div key={cat} className={`p-3 md:p-4 rounded-xl border transition-all ${
-                        isOver ? 'border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
-                      }`}>
-                        {editingCat?.name === cat ? (
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            <span className="font-medium text-gray-900 dark:text-white flex-shrink-0">{cat}</span>
-                            <div className="flex gap-2 flex-1 w-full">
-                              <input type="number" value={editingCat.amount} min="1"
-                                onChange={(e) => setEditingCat({ ...editingCat, amount: e.target.value })}
-                                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-[#e5007e]" />
-                              <button onClick={() => handleUpdateCategoryBudget(cat)}
-                                className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 font-medium">✓</button>
-                              <button onClick={() => setEditingCat(null)}
-                                className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-500">✕</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: catColor }} />
-                                <span className="text-sm font-semibold text-gray-900 dark:text-white">{cat}</span>
-                                <span className="text-xs">{getStatusEmoji(budgeted > 0 ? (spent / budgeted) * 100 : 0)}</span>
+                <>
+                  <div className="space-y-4">
+                    {allTrackedCategories.map((cat, idx) => {
+                      const budgeted = categoryBudgets[cat] || 0;
+                      const spent = expensesByCategory[cat] || 0;
+                      const percent = budgeted > 0 ? Math.min((spent / budgeted) * 100, 100) : 0;
+                      const isOver = budgeted > 0 && spent > budgeted;
+                      const catColor = getCategoryColor(cat, idx);
+                      return (
+                        <div key={cat} className={`p-3 md:p-4 rounded-xl border transition-all ${
+                          isOver ? 'border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+                        }`}>
+                          {editingCat?.name === cat ? (
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                              <span className="font-medium text-gray-900 dark:text-white flex-shrink-0">{cat}</span>
+                              <div className="flex gap-2 flex-1 w-full">
+                                <input type="number" value={editingCat.amount} min="1"
+                                  onChange={(e) => setEditingCat({ ...editingCat, amount: e.target.value })}
+                                  className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-[#e5007e]" />
+                                <button onClick={() => handleUpdateCategoryBudget(cat)}
+                                  className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-green-600 font-medium">✓</button>
+                                <button onClick={() => setEditingCat(null)}
+                                  className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-500">✕</button>
                               </div>
-                              <div className="flex items-center gap-1">
-                                <button onClick={() => setEditingCat({ name: cat, amount: categoryBudgets[cat] || '' })}
-                                  className="p-1.5 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                {categoryBudgets[cat] && (
-                                  <button onClick={() => handleDeleteCategoryBudget(cat)}
-                                    className="p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
-                                    <Trash2 className="w-3.5 h-3.5" />
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: catColor }} />
+                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">{cat}</span>
+                                  <span className="text-xs">{getStatusEmoji(budgeted > 0 ? (spent / budgeted) * 100 : 0)}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => setEditingCat({ name: cat, amount: categoryBudgets[cat] || '' })}
+                                    className="p-1.5 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
+                                    <Edit className="w-3.5 h-3.5" />
                                   </button>
-                                )}
-                              </div>
-                            </div>
-                            {budgeted > 0 && (
-                              <>
-                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-2 overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all duration-500 ${getBarColor(percent)} bg-gradient-to-r ${getBarGradient(percent)}`}
-                                    style={{ width: `${percent}%` }}
-                                  />
+                                  {categoryBudgets[cat] && (
+                                    <button onClick={() => handleDeleteCategoryBudget(cat)}
+                                      className="p-1.5 text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
-                                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                                  <span>
-                                    ₪{spent.toLocaleString()} / ₪{budgeted.toLocaleString()}
-                                    {isOver && (
-                                      <span className="text-red-500 dark:text-red-400 font-medium mr-1">
-                                        {' '}(חריגה ₪{(spent - budgeted).toLocaleString()})
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className={`font-medium ${
-                                    isOver ? 'text-red-500 dark:text-red-400' :
-                                    percent >= 80 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
-                                  }`}>{percent.toFixed(0)}%</span>
-                                </div>
-                              </>
-                            )}
-                            {!budgeted && (
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-gray-500 dark:text-gray-400">הוצאה בפועל: ₪{spent.toLocaleString()}</span>
-                                <button onClick={() => setEditingCat({ name: cat, amount: '' })}
-                                  className="text-[#e5007e] hover:text-[#ff4da6] hover:underline font-medium">
-                                  + הגדר תקציב
-                                </button>
                               </div>
-                            )}
-                          </>
-                        )}
+                              {budgeted > 0 && (
+                                <>
+                                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-2 overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all duration-500 ${getBarColor(percent)} bg-gradient-to-r ${getBarGradient(percent)}`}
+                                      style={{ width: `${percent}%` }}
+                                    />
+                                  </div>
+                                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                                    <span>
+                                      ₪{spent.toLocaleString()} / ₪{budgeted.toLocaleString()}
+                                      {isOver && (
+                                        <span className="text-red-500 dark:text-red-400 font-medium mr-1">
+                                          {' '}(חריגה ₪{(spent - budgeted).toLocaleString()})
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className={`font-medium ${
+                                      isOver ? 'text-red-500 dark:text-red-400' :
+                                      percent >= 80 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                                    }`}>{percent.toFixed(0)}%</span>
+                                  </div>
+                                </>
+                              )}
+                              {!budgeted && (
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 dark:text-gray-400">הוצאה בפועל: ₪{spent.toLocaleString()}</span>
+                                  <button onClick={() => setEditingCat({ name: cat, amount: '' })}
+                                    className="text-[#e5007e] hover:text-[#ff4da6] hover:underline font-medium">
+                                    + הגדר תקציב
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* ✅ שורת סיכום תקציב קטגוריות */}
+                  {Object.keys(categoryBudgets).length > 0 && (
+                    <div className="mt-4 pt-4 border-t-2 border-gray-200 dark:border-gray-700">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <span className="font-bold text-gray-700 dark:text-gray-300 text-sm">
+                          סה"כ תקציב קטגוריות ({Object.keys(categoryBudgets).length} קטגוריות)
+                        </span>
+                        <div className="flex items-center gap-3 text-sm">
+                          <span>
+                            <span className="text-gray-500 dark:text-gray-400">בפועל: </span>
+                            <span className={`font-bold ${totalCategorySpent > totalCategoryBudgeted ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                              ₪{totalCategorySpent.toLocaleString()}
+                            </span>
+                          </span>
+                          <span className="text-gray-300 dark:text-gray-600">/</span>
+                          <span>
+                            <span className="text-gray-500 dark:text-gray-400">מתוכנן: </span>
+                            <span className="font-bold text-gray-900 dark:text-white">₪{totalCategoryBudgeted.toLocaleString()}</span>
+                          </span>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="mt-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 bg-gradient-to-r ${
+                            totalCategorySpent > totalCategoryBudgeted ? 'from-red-500 to-rose-600' :
+                            totalCategorySpent / totalCategoryBudgeted > 0.8 ? 'from-amber-400 to-orange-500' :
+                            'from-emerald-500 to-teal-500'
+                          }`}
+                          style={{ width: `${Math.min(totalCategoryBudgeted > 0 ? (totalCategorySpent / totalCategoryBudgeted) * 100 : 0, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-10">
                   <Target className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
