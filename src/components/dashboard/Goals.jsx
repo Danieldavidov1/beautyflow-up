@@ -95,7 +95,6 @@ export default function Goals() {
   const [showForm, setShowForm] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
 
-  // ✅ תיקון: loading (לא loadingCategories)
   const {
     categories: cloudCategories,
     loading: catsLoading,
@@ -119,11 +118,26 @@ export default function Goals() {
     category: ''
   });
 
+  // ✅ סטייט ליצירת קטגוריה Inline
+  const [isAddingInline, setIsAddingInline] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatColor, setInlineCatColor] = useState('#8b5cf6');
+
+  // ✅ local color state למניעת writes מיותרים ל-Firebase
+  const [localColorValue, setLocalColorValue] = useState('');
+
+  // ✅ תיקון dependency: הוספת formData.category ו-isAddingInline
   useEffect(() => {
-    if (categories.length > 0 && !formData.category) {
+    if (categories.length > 0 && !formData.category && !isAddingInline) {
       setFormData(prev => ({ ...prev, category: categories[0].name }));
     }
-  }, [categories]);
+  }, [categories, formData.category, isAddingInline]);
+
+  // ✅ סנכרון localColorValue כשמשנים קטגוריה נבחרת
+  useEffect(() => {
+    const cat = categories.find(c => c.name === formData.category);
+    if (cat) setLocalColorValue(cat.color);
+  }, [formData.category, categories]);
 
   const [activeCategory, setActiveCategory] = useState('הכל');
   const [editingCat, setEditingCat] = useState(null);
@@ -141,6 +155,7 @@ export default function Goals() {
   const isLoading = loadingGoals || catsLoading;
 
   const handleNewGoalClick = () => {
+    setIsAddingInline(false);
     setShowForm(true);
     setTimeout(() => {
       if (formRef.current) {
@@ -216,6 +231,19 @@ export default function Goals() {
   const completedCount = goals.filter(g => g.current >= g.target).length;
   const avgProgress = goals.length > 0
     ? Math.round(goals.reduce((sum, g) => sum + (g.current / g.target * 100), 0) / goals.length)
+    : 0;
+
+  // ✅ חישוב סיכום כולל לשורת סיכום
+  const totalSaved = useMemo(() =>
+    filteredGoals.reduce((sum, g) => sum + (g.current || 0), 0),
+  [filteredGoals]);
+
+  const totalTarget = useMemo(() =>
+    filteredGoals.reduce((sum, g) => sum + (g.target || 0), 0),
+  [filteredGoals]);
+
+  const overallProgress = totalTarget > 0
+    ? Math.min((totalSaved / totalTarget) * 100, 100)
     : 0;
 
   const activeGoalsChartData = useMemo(() =>
@@ -295,6 +323,26 @@ export default function Goals() {
     }
   }, [goals, deleteCategory, showToast]);
 
+  // ✅ הוספת קטגוריה מהירה מתוך הטופס (Inline)
+  const handleAddInlineCategory = async () => {
+    if (!inlineCatName.trim()) { showToast('נא להזין שם קטגוריה', 'error'); return; }
+    if (categories.find(c => c.name === inlineCatName.trim())) {
+      showToast('הקטגוריה כבר קיימת', 'error'); return;
+    }
+    try {
+      await addCategory(inlineCatName.trim(), inlineCatColor);
+      setFormData(prev => ({ ...prev, category: inlineCatName.trim() }));
+      // ✅ שמור צבע מיידית לפני שה-hook מתעדכן מה-onSnapshot
+      setLocalColorValue(inlineCatColor);
+      setIsAddingInline(false);
+      setInlineCatName('');
+      setInlineCatColor('#8b5cf6');
+      showToast('קטגוריה נוצרה בהצלחה!', 'success');
+    } catch {
+      showToast('שגיאה ביצירת קטגוריה', 'error');
+    }
+  };
+
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.target || !formData.deadline) {
@@ -317,6 +365,9 @@ export default function Goals() {
       });
       setFormData({ title: '', target: '', current: '', deadline: '', category: categories[0]?.name || '' });
       setShowForm(false);
+      setIsAddingInline(false);
+      setInlineCatName('');
+      setInlineCatColor('#8b5cf6');
       showToast('היעד נוסף בהצלחה! 🎯', 'success');
     } catch (error) {
       console.error(error);
@@ -391,6 +442,10 @@ export default function Goals() {
       showToast('שגיאה בעדכון היעד', 'error');
     }
   };
+
+  // ✅ displayColor לטופס
+  const selectedFormCategory = categories.find(c => c.name === formData.category);
+  const displayColor = localColorValue || selectedFormCategory?.color || '#8b5cf6';
 
   return (
     <div className="pt-2 pb-8 px-4 md:p-8 relative transition-colors" ref={containerRef}>
@@ -622,12 +677,12 @@ export default function Goals() {
             </div>
           )}
 
-          {/* טופס הוספת יעד */}
+          {/* ✅ טופס הוספת יעד — עם Inline Category + Color Picker מתוקן */}
           {showForm && (
             <div ref={formRef} className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm mb-6 border-2 border-[#e5007e] transition-colors scroll-mt-24">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white">הוספת יעד חדש</h2>
-                <button onClick={() => setShowForm(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+                <button onClick={() => { setShowForm(false); setIsAddingInline(false); setInlineCatName(''); setInlineCatColor('#8b5cf6'); }} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
                   <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                 </button>
               </div>
@@ -670,24 +725,72 @@ export default function Goals() {
                     required
                   />
                 </div>
-                <div>
+
+                {/* ✅ שדה קטגוריה עם Inline + Color Picker */}
+                <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">קטגוריה</label>
-                  <div className="flex gap-2">
-                    <div
-                      className="w-10 h-10 rounded-lg border border-gray-300 dark:border-gray-600 flex-shrink-0 transition-colors"
-                      style={{ backgroundColor: getCategoryColor(formData.category) }}
-                    />
-                    <select
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
-                    >
-                      {categories.map(cat => (
-                        <option key={cat.name} value={cat.name}>{cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
+
+                  {isAddingInline ? (
+                    // מצב יצירת קטגוריה חדשה
+                    <div className="flex gap-2">
+                      <input
+                        type="color"
+                        value={inlineCatColor}
+                        onChange={(e) => setInlineCatColor(e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-transparent flex-shrink-0"
+                        title="בחר צבע לקטגוריה החדשה"
+                      />
+                      <input
+                        type="text"
+                        value={inlineCatName}
+                        onChange={(e) => setInlineCatName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddInlineCategory())}
+                        placeholder="שם הקטגוריה..."
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        autoFocus
+                      />
+                      <button type="button" onClick={handleAddInlineCategory}
+                        className="bg-purple-600 text-white px-3 rounded-lg hover:bg-purple-700 text-sm font-bold">✓</button>
+                      <button type="button" onClick={() => { setIsAddingInline(false); setInlineCatName(''); setInlineCatColor('#8b5cf6'); }}
+                        className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 rounded-lg hover:bg-gray-300 text-sm font-bold">✕</button>
+                    </div>
+                  ) : (
+                    // מצב בחירת קטגוריה רגיל
+                    <div className="flex gap-2">
+                      {/* ✅ color picker עם onBlur בלבד לשמירה ל-Firebase */}
+                      <input
+                        type="color"
+                        value={displayColor}
+                        onChange={(e) => setLocalColorValue(e.target.value)}
+                        onBlur={(e) => {
+                          if (selectedFormCategory && e.target.value !== selectedFormCategory.color) {
+                            updateCategory(selectedFormCategory.id, selectedFormCategory.name, e.target.value);
+                            showToast('צבע הקטגוריה עודכן! 🎨', 'success');
+                          }
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-transparent flex-shrink-0"
+                        title="לחץ לשינוי הצבע של הקטגוריה"
+                      />
+                      <select
+                        value={formData.category}
+                        onChange={(e) => {
+                          if (e.target.value === 'ADD_NEW') {
+                            setIsAddingInline(true);
+                          } else {
+                            setFormData(prev => ({ ...prev, category: e.target.value }));
+                          }
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#e5007e] text-sm"
+                      >
+                        {categories.map(cat => (
+                          <option key={cat.name} value={cat.name}>{cat.name}</option>
+                        ))}
+                        <option value="ADD_NEW" className="font-bold text-purple-600">➕ הוסף קטגוריה חדשה...</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
+
                 <div className="md:col-span-2 flex gap-3">
                   <button
                     type="submit"
@@ -696,7 +799,7 @@ export default function Goals() {
                     שמור יעד
                   </button>
                   <button
-                    type="button" onClick={() => setShowForm(false)}
+                    type="button" onClick={() => { setShowForm(false); setIsAddingInline(false); setInlineCatName(''); setInlineCatColor('#8b5cf6'); }}
                     className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium text-sm"
                   >
                     ביטול
@@ -761,120 +864,153 @@ export default function Goals() {
 
           {/* כרטיסי יעדים */}
           {filteredGoals.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-              {filteredGoals.map((goal) => {
-                const progress = Math.min((goal.current / goal.target) * 100, 100);
-                const isCompleted = goal.current >= goal.target;
-                const daysLeft = Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24));
-                const catColor = getCategoryColor(goal.category);
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                {filteredGoals.map((goal) => {
+                  const progress = Math.min((goal.current / goal.target) * 100, 100);
+                  const isCompleted = goal.current >= goal.target;
+                  const daysLeft = Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+                  const catColor = getCategoryColor(goal.category);
 
-                return (
-                  <div
-                    key={goal.id}
-                    className={`gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-lg border-2 transition-colors ${
-                      isCompleted ? 'border-green-400 dark:border-green-500' : 'border-gray-200 dark:border-gray-700'
-                    }`}
-                    style={{ borderRightColor: isCompleted ? '' : catColor, borderRightWidth: isCompleted ? '' : '4px' }}
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1 min-w-0 ml-2">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {isCompleted && <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />}
-                          <h3 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white leading-tight">{goal.title}</h3>
-                        </div>
-                        <span
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full"
-                          style={{ backgroundColor: catColor + '20', color: catColor }}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catColor }} />
-                          {goal.category}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleDelete(goal.id)}
-                        className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg transition-colors flex-shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="flex justify-between items-end mb-4">
-                      <div>
-                        <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">התקדמות</p>
-                        <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">₪{goal.current.toLocaleString()}</p>
-                      </div>
-                      <div className="text-left">
-                        <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">יעד</p>
-                        <p className="text-lg md:text-xl font-bold text-gray-700 dark:text-gray-300">₪{goal.target.toLocaleString()}</p>
-                      </div>
-                    </div>
-
-                    <div className="mb-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{progress.toFixed(0)}% הושלם</span>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          daysLeft <= 0
-                            ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                            : daysLeft <= 7
-                            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-                        }`}>
-                          {daysLeft > 0 ? `${daysLeft} ימים נותרו` : 'פג תוקף'}
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
-                        <div
-                          className={`h-3 rounded-full transition-all duration-500 ${isCompleted ? 'bg-gradient-to-r from-green-500 to-emerald-600' : ''}`}
-                          style={{ width: `${progress}%`, backgroundColor: isCompleted ? '' : catColor }}
-                        />
-                      </div>
-                    </div>
-
-                    {!isCompleted && (
-                      <div className="space-y-3">
-                        <div className="flex gap-2">
-                          <input
-                            ref={el => inputRefs.current[goal.id] = el}
-                            type="number" placeholder="הכנס סכום" min="0"
-                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-[#e5007e]"
-                            onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) handleAddMoney(goal.id); }}
-                          />
-                          <button
-                            onClick={() => handleAddMoney(goal.id)}
-                            className="flex-shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                            title="הוסף כסף"
+                  return (
+                    <div
+                      key={goal.id}
+                      className={`gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-lg border-2 transition-colors ${
+                        isCompleted ? 'border-green-400 dark:border-green-500' : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                      style={{ borderRightColor: isCompleted ? '' : catColor, borderRightWidth: isCompleted ? '' : '4px' }}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1 min-w-0 ml-2">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {isCompleted && <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />}
+                            <h3 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white leading-tight">{goal.title}</h3>
+                          </div>
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full"
+                            style={{ backgroundColor: catColor + '20', color: catColor }}
                           >
-                            <ArrowUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleSubtractMoney(goal.id)}
-                            className="flex-shrink-0 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
-                            title="הפחת כסף"
-                          >
-                            <ArrowDown className="w-4 h-4" />
-                          </button>
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catColor }} />
+                            {goal.category}
+                          </span>
                         </div>
                         <button
-                          onClick={() => handleComplete(goal.id)}
-                          className="w-full px-4 py-2 bg-[#e5007e] text-white rounded-lg hover:bg-[#b30062] transition-colors text-sm font-medium"
+                          onClick={() => handleDelete(goal.id)}
+                          className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 p-2 rounded-lg transition-colors flex-shrink-0"
                         >
-                          ✓ סמן כהושלם
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-                          💡 הכנס סכום ולחץ ↑ להוסיף | ↓ להפחית | Enter להוסיף
-                        </p>
                       </div>
-                    )}
 
-                    {isCompleted && (
-                      <div className="bg-green-50 dark:bg-green-900/20 border-r-4 border-green-500 dark:border-green-600 p-3 rounded mt-4">
-                        <p className="text-green-800 dark:text-green-400 font-medium text-sm">🎉 כל הכבוד! השגת את היעד!</p>
+                      <div className="flex justify-between items-end mb-4">
+                        <div>
+                          <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">התקדמות</p>
+                          <p className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">₪{goal.current.toLocaleString()}</p>
+                        </div>
+                        <div className="text-left">
+                          <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">יעד</p>
+                          <p className="text-lg md:text-xl font-bold text-gray-700 dark:text-gray-300">₪{goal.target.toLocaleString()}</p>
+                        </div>
                       </div>
-                    )}
+
+                      <div className="mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{progress.toFixed(0)}% הושלם</span>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            daysLeft <= 0
+                              ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                              : daysLeft <= 7
+                              ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          }`}>
+                            {daysLeft > 0 ? `${daysLeft} ימים נותרו` : 'פג תוקף'}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                          <div
+                            className={`h-3 rounded-full transition-all duration-500 ${isCompleted ? 'bg-gradient-to-r from-green-500 to-emerald-600' : ''}`}
+                            style={{ width: `${progress}%`, backgroundColor: isCompleted ? '' : catColor }}
+                          />
+                        </div>
+                      </div>
+
+                      {!isCompleted && (
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <input
+                              ref={el => inputRefs.current[goal.id] = el}
+                              type="number" placeholder="הכנס סכום" min="0"
+                              className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-[#e5007e]"
+                              onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) handleAddMoney(goal.id); }}
+                            />
+                            <button
+                              onClick={() => handleAddMoney(goal.id)}
+                              className="flex-shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                              title="הוסף כסף"
+                            >
+                              <ArrowUp className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleSubtractMoney(goal.id)}
+                              className="flex-shrink-0 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                              title="הפחת כסף"
+                            >
+                              <ArrowDown className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => handleComplete(goal.id)}
+                            className="w-full px-4 py-2 bg-[#e5007e] text-white rounded-lg hover:bg-[#b30062] transition-colors text-sm font-medium"
+                          >
+                            ✓ סמן כהושלם
+                          </button>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                            💡 הכנס סכום ולחץ ↑ להוסיף | ↓ להפחית | Enter להוסיף
+                          </p>
+                        </div>
+                      )}
+
+                      {isCompleted && (
+                        <div className="bg-green-50 dark:bg-green-900/20 border-r-4 border-green-500 dark:border-green-600 p-3 rounded mt-4">
+                          <p className="text-green-800 dark:text-green-400 font-medium text-sm">🎉 כל הכבוד! השגת את היעד!</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ✅ שורת סיכום כולל — ייחודי ליעדים: סה"כ נחסך / סה"כ יעד */}
+              {filteredGoals.length > 1 && (
+                <div className="mt-6 bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-800 p-4 md:p-5 shadow-sm">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+                    <span className="font-bold text-gray-700 dark:text-gray-300 text-sm">
+                      סה"כ ({filteredGoals.length} יעדים{activeCategory !== 'הכל' ? ` בקטגוריה "${activeCategory}"` : ''})
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">₪{totalSaved.toLocaleString()}</span>
+                        <span className="mx-1">/</span>
+                        <span className="font-bold text-gray-700 dark:text-gray-300">₪{totalTarget.toLocaleString()}</span>
+                      </span>
+                      <span className="text-sm font-bold text-purple-600 dark:text-purple-400">
+                        {overallProgress.toFixed(0)}%
+                      </span>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                    <div
+                      className="h-3 rounded-full bg-gradient-to-r from-purple-500 to-emerald-500 transition-all duration-500"
+                      style={{ width: `${overallProgress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    <span>נחסך: ₪{totalSaved.toLocaleString()}</span>
+                    <span>נותר: ₪{(totalTarget - totalSaved).toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+            </>
           ) : goals.length > 0 ? (
             <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
               <Filter className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
