@@ -5,6 +5,7 @@ import {
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useToast } from '../../context/ToastContext';
 import { useTransactions } from '../../hooks/useTransactions';
+import { useCategoriesFirestore } from '../../hooks/useCategoriesFirestore';
 import {
   collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, getDocs
 } from 'firebase/firestore';
@@ -13,8 +14,7 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 
 const HEADER_HEIGHT = 73;
-
-const CATEGORY_COLORS = [
+const FALLBACK_COLORS = [
   '#e5007e', '#ef4444', '#f97316', '#8b5cf6',
   '#3b82f6', '#10b981', '#f59e0b', '#6b7280'
 ];
@@ -24,6 +24,9 @@ export default function Budget() {
   const { transactions: incomes, loading: loadingIncomes } = useTransactions('income');
   const { transactions: expenses, loading: loadingExpenses } = useTransactions('expense');
 
+  // ✅ צבעים דינמיים מ-Firebase
+  const { categories: expenseCategories, loading: catsLoading } = useCategoriesFirestore('expense');
+
   const [budget, setBudget] = useState({ income: 0, expenses: 0 });
   const [categoryBudgets, setCategoryBudgets] = useState({});
   const [loadingBudget, setLoadingBudget] = useState(true);
@@ -32,54 +35,74 @@ export default function Budget() {
   const categoryBudgetRef = useRef(null);
   const containerRef = useRef(null);
 
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  // ✅ תיקון 2: useMemo כדי למנוע טעינה מחדש בכל render
+  const { currentMonth, currentYear } = useMemo(() => {
+    const now = new Date();
+    return { currentMonth: now.getMonth(), currentYear: now.getFullYear() };
+  }, []);
 
+  // ✅ מפת צבעים דינמית מ-Firebase
+  const categoryColorMap = useMemo(() =>
+    Object.fromEntries(expenseCategories.map(c => [c.name, c.color])),
+  [expenseCategories]);
+
+  const getCategoryColor = useCallback((catName, idx) =>
+    categoryColorMap[catName] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length],
+  [categoryColorMap]);
+
+  // ✅ תיקון 1: onAuthStateChanged במקום auth.currentUser ישיר
   useEffect(() => {
-    const userId = auth.currentUser?.uid;
-    if (!userId) {
-      setLoadingBudget(false);
-      return;
-    }
+    let unsubscribeBudget = () => {};
+    let unsubscribeCats = () => {};
 
-    const budgetQuery = query(
-      collection(db, 'budgets'),
-      where('userId', '==', userId),
-      where('month', '==', currentMonth + 1),
-      where('year', '==', currentYear)
-    );
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      unsubscribeBudget();
+      unsubscribeCats();
 
-    const unsubscribeBudget = onSnapshot(budgetQuery, (snapshot) => {
-      const budgetDoc = snapshot.docs[0];
-      if (budgetDoc) setBudget(budgetDoc.data());
-      setLoadingBudget(false);
-    });
+      if (!user) {
+        setLoadingBudget(false);
+        return;
+      }
 
-    const catQuery = query(
-      collection(db, 'categoryBudgets'),
-      where('userId', '==', userId),
-      where('month', '==', currentMonth + 1),
-      where('year', '==', currentYear)
-    );
+      const budgetQuery = query(
+        collection(db, 'budgets'),
+        where('userId', '==', user.uid),
+        where('month', '==', currentMonth + 1),
+        where('year', '==', currentYear)
+      );
 
-    const unsubscribeCats = onSnapshot(catQuery, (snapshot) => {
-      const cats = {};
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        cats[data.category] = data.amount;
+      unsubscribeBudget = onSnapshot(budgetQuery, (snapshot) => {
+        const budgetDoc = snapshot.docs[0];
+        if (budgetDoc) setBudget(budgetDoc.data());
+        setLoadingBudget(false);
       });
-      setCategoryBudgets(cats);
+
+      const catQuery = query(
+        collection(db, 'categoryBudgets'),
+        where('userId', '==', user.uid),
+        where('month', '==', currentMonth + 1),
+        where('year', '==', currentYear)
+      );
+
+      unsubscribeCats = onSnapshot(catQuery, (snapshot) => {
+        const cats = {};
+        snapshot.docs.forEach(d => {
+          const data = d.data();
+          cats[data.category] = data.amount;
+        });
+        setCategoryBudgets(cats);
+      });
     });
 
     return () => {
+      unsubscribeAuth();
       unsubscribeBudget();
       unsubscribeCats();
     };
   }, [currentMonth, currentYear]);
 
-  // ✅ תיקון: if (loading) return בתוך useGSAP + dependencies על loading
-  const loading = loadingIncomes || loadingExpenses || loadingBudget;
+  // ✅ ספינר מחכה גם לקטגוריות
+  const loading = loadingIncomes || loadingExpenses || loadingBudget || catsLoading;
 
   useGSAP(() => {
     if (loading) return;
@@ -328,10 +351,7 @@ export default function Budget() {
   const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
   return (
-    // ✅ ref תמיד קיים - spinner בתוך ה-div!
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
-
-      {/* ✅ Spinner בתוך ה-div הראשי */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
@@ -477,7 +497,6 @@ export default function Budget() {
 
           {/* 2 כרטיסי Progress - הכנסות + הוצאות כוללות */}
           <div className="gsap-card grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-
             {/* הכנסות */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5 shadow-sm border-2 border-green-100 dark:border-green-900/30 transition-colors">
               <div className="flex items-center justify-between mb-3">
@@ -608,7 +627,8 @@ export default function Budget() {
                     const spent = expensesByCategory[cat] || 0;
                     const percent = budgeted > 0 ? Math.min((spent / budgeted) * 100, 100) : 0;
                     const isOver = budgeted > 0 && spent > budgeted;
-                    const catColor = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
+                    // ✅ צבע דינמי מ-Firebase עם fallback
+                    const catColor = getCategoryColor(cat, idx);
                     return (
                       <div key={cat} className={`p-3 md:p-4 rounded-xl border transition-all ${
                         isOver ? 'border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
@@ -699,7 +719,6 @@ export default function Budget() {
 
           {/* פירוט הכנסות והוצאות */}
           <div className="gsap-card grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-
             {/* הכנסות לפי קטגוריה */}
             {Object.keys(incomesByCategory).length > 0 && (
               <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700 transition-colors">
