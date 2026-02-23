@@ -14,7 +14,6 @@ export default function Income() {
   const { showToast } = useToast();
   const { transactions: incomes, loading: loadingTransactions, addTransaction } = useTransactions('income');
   
-  // ✅ יבוא קטגוריות מהענן באמצעות ה-Hook שלנו עם השמות הנכונים!
   const { 
     categories: cloudCategories, 
     loading: catsLoading, 
@@ -24,10 +23,8 @@ export default function Income() {
     reorderCategories
   } = useCategoriesFirestore('income');
 
-  // ✅ State מקומי לקטגוריות כדי לאפשר גרירה ועדכון מיידי (Optimistic UI)
   const [categories, setCategories] = useState([]);
 
-  // מסנכרן את ה-State המקומי כשהנתונים מהענן מתעדכנים
   useEffect(() => {
     setCategories(cloudCategories);
   }, [cloudCategories]);
@@ -36,7 +33,6 @@ export default function Income() {
   const categoryRef = useRef(null);
   const containerRef = useRef(null);
 
-  // ספינר משותף
   const isLoading = loadingTransactions || catsLoading;
 
   useGSAP(() => {
@@ -61,6 +57,14 @@ export default function Income() {
   const [newCatColor, setNewCatColor] = useState('#10b981');
   const [editingCat, setEditingCat] = useState(null);
 
+  // סטייט ליצירת קטגוריה בתוך הטופס (Inline)
+  const [isAddingInline, setIsAddingInline] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState('');
+  const [inlineCatColor, setInlineCatColor] = useState('#10b981');
+
+  // ✅ תיקון 2: local color state למניעת writes מיותרים ל-Firebase
+  const [localColorValue, setLocalColorValue] = useState('');
+
   const [formData, setFormData] = useState({
     source: '',
     amount: '',
@@ -68,12 +72,12 @@ export default function Income() {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // בחירת קטגוריה דיפולטיבית
+  // ✅ תיקון 4: הוספת formData.category ל-dependencies
   useEffect(() => {
-    if (categories.length > 0 && !formData.category) {
+    if (categories.length > 0 && !formData.category && !isAddingInline) {
       setFormData(prev => ({ ...prev, category: categories[0].name }));
     }
-  }, [categories]);
+  }, [categories, isAddingInline, formData.category]);
 
   const [filters, setFilters] = useState({
     search: '',
@@ -151,7 +155,6 @@ export default function Income() {
     return { thisMonthTotal, prevMonthTotal, avgMonthly, maxIncome, changePercent, changeDir };
   }, [incomes]);
 
-  // ✅ Drag & Drop חכם מול הענן (Optimistic UI)
   const handleDragStart = useCallback((index) => setDragIndex(index), []);
   const handleDragOver = useCallback((e, index) => { e.preventDefault(); setDragOver(index); }, []);
   const handleDragEnd = useCallback(() => { setDragIndex(null); setDragOver(null); }, []);
@@ -160,27 +163,23 @@ export default function Income() {
     e.preventDefault();
     if (dragIndex === null || dragIndex === dropIndex) return;
     
-    // מעדכנים קודם כל את ה-UI מיד
     const updated = [...categories];
     const [moved] = updated.splice(dragIndex, 1);
     updated.splice(dropIndex, 0, moved);
     
-    // Optimistic Update
     setCategories(updated); 
     setDragIndex(null);
     setDragOver(null);
     
-    // ואז שומרים בענן ברקע
     try {
       await reorderCategories(updated);
       showToast('סדר הקטגוריות עודכן! 🔃', 'success');
     } catch {
       showToast('שגיאה בשמירת הסדר לענן', 'error');
-      setCategories(cloudCategories); // במקרה של שגיאה, נחזיר את המצב לאחור
+      setCategories(cloudCategories);
     }
   }, [dragIndex, categories, cloudCategories, reorderCategories, showToast]);
 
-  // ✅ פעולות קטגוריות מול ה-Hook שלנו
   const handleAddCategory = useCallback(async () => {
     if (!newCatName.trim()) return;
     if (categories.find(c => c.name === newCatName.trim())) {
@@ -270,9 +269,35 @@ export default function Income() {
     showToast(`יוצאו ${filteredIncomes.length} הכנסות ✅`, 'success');
   }, [filteredIncomes, showToast]);
 
+  // ✅ תיקון 3: שמירת הצבע גם ב-formData כדי שה-picker יציג נכון מייד
+  const handleAddInlineCategory = async () => {
+    if (!inlineCatName.trim()) { showToast('נא להזין שם קטגוריה', 'error'); return; }
+    if (categories.find(c => c.name === inlineCatName.trim())) {
+      showToast('הקטגוריה כבר קיימת', 'error'); return;
+    }
+    try {
+      await addCategory(inlineCatName.trim(), inlineCatColor);
+      setFormData(prev => ({ ...prev, category: inlineCatName.trim() }));
+      // ✅ שמור את הצבע שנבחר ב-local state כדי שה-color picker יראה אותו מייד לפני שה-hook מתעדכן
+      setLocalColorValue(inlineCatColor);
+      setIsAddingInline(false);
+      setInlineCatName('');
+      setInlineCatColor('#10b981');
+      showToast('קטגוריה נוצרה בהצלחה!', 'success');
+    } catch {
+      showToast('שגיאה ביצירת קטגוריה', 'error');
+    }
+  };
+
+  // ✅ סנכרון localColorValue כשמשנים קטגוריה נבחרת
+  useEffect(() => {
+    const cat = categories.find(c => c.name === formData.category);
+    if (cat) setLocalColorValue(cat.color);
+  }, [formData.category, categories]);
+
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
-    if (!formData.source || !formData.amount) {
+    if (!formData.source || !formData.amount || !formData.category) {
       showToast('נא למלא את כל השדות החובה', 'error');
       return;
     }
@@ -316,6 +341,7 @@ export default function Income() {
       date: income.date
     });
     setEditingId(income.id);
+    setIsAddingInline(false);
     setShowForm(true);
   }, []);
 
@@ -337,6 +363,7 @@ export default function Income() {
 
   const handleNewIncome = useCallback(() => {
     setEditingId(null);
+    setIsAddingInline(false);
     setFormData({
       source: '',
       amount: '',
@@ -346,6 +373,10 @@ export default function Income() {
     setShowForm(true);
     if (showForm && formRef.current) scrollToRef(formRef);
   }, [categories, showForm, scrollToRef]);
+
+  // ✅ תיקון 2: color picker מציג localColorValue במקום מה-categories ישירות
+  const selectedFormCategory = categories.find(c => c.name === formData.category);
+  const displayColor = localColorValue || selectedFormCategory?.color || '#10b981';
 
   return (
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef}>
@@ -641,18 +672,68 @@ export default function Income() {
                     placeholder="5000" min="0" step="0.01"
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 text-sm md:text-base" required />
                 </div>
-                <div>
+                
+                {/* שדה בחירת/הוספת קטגוריה וצבע */}
+                <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">קטגוריה</label>
-                  <div className="flex gap-2">
-                    <div className="w-10 h-10 rounded-lg border border-gray-300 dark:border-gray-600 flex-shrink-0 transition-colors duration-200"
-                      style={{ backgroundColor: getCategoryColor(formData.category) }} />
-                    <select value={formData.category}
-                      onChange={(e) => setFormData(prev => ({...prev, category: e.target.value}))}
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 text-sm md:text-base">
-                      {categories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
-                    </select>
-                  </div>
+                  
+                  {isAddingInline ? (
+                    // מצב יצירת קטגוריה חדשה
+                    <div className="flex gap-2">
+                      <input 
+                        type="color" 
+                        value={inlineCatColor}
+                        onChange={(e) => setInlineCatColor(e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-transparent flex-shrink-0"
+                        title="בחר צבע לקטגוריה החדשה"
+                      />
+                      <input 
+                        type="text" 
+                        value={inlineCatName}
+                        onChange={(e) => setInlineCatName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddInlineCategory())}
+                        placeholder="שם הקטגוריה..."
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 text-sm"
+                        autoFocus
+                      />
+                      <button type="button" onClick={handleAddInlineCategory} className="bg-green-600 text-white px-3 rounded-lg hover:bg-green-700 text-sm font-bold">✓</button>
+                      <button type="button" onClick={() => { setIsAddingInline(false); setInlineCatName(''); setInlineCatColor('#10b981'); }} className="bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 px-3 rounded-lg hover:bg-gray-300 text-sm font-bold">✕</button>
+                    </div>
+                  ) : (
+                    // מצב בחירת קטגוריה רגיל
+                    <div className="flex gap-2">
+                      {/* ✅ תיקון 2: color picker עם onBlur בלבד לשמירה ל-Firebase */}
+                      <input 
+                        type="color"
+                        value={displayColor}
+                        onChange={(e) => setLocalColorValue(e.target.value)}
+                        onBlur={(e) => {
+                          if (selectedFormCategory && e.target.value !== selectedFormCategory.color) {
+                            updateCategory(selectedFormCategory.id, selectedFormCategory.name, e.target.value);
+                            showToast('צבע הקטגוריה עודכן! 🎨', 'success');
+                          }
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer border border-gray-300 dark:border-gray-600 bg-transparent flex-shrink-0"
+                        title="לחץ לשינוי הצבע של הקטגוריה"
+                      />
+                      <select 
+                        value={formData.category}
+                        onChange={(e) => {
+                          if (e.target.value === 'ADD_NEW') {
+                            setIsAddingInline(true);
+                          } else {
+                            setFormData(prev => ({...prev, category: e.target.value}));
+                          }
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 text-sm md:text-base"
+                      >
+                        {categories.map(cat => <option key={cat.name} value={cat.name}>{cat.name}</option>)}
+                        <option value="ADD_NEW" className="font-bold text-green-600">➕ הוסף קטגוריה חדשה...</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תאריך</label>
                   <input type="date" value={formData.date}
@@ -664,7 +745,7 @@ export default function Income() {
                     className="flex-1 bg-green-600 text-white py-2.5 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium text-sm md:text-base">
                     {editingId ? 'עדכן הכנסה' : 'שמור הכנסה'}
                   </button>
-                  <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }}
+                  <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setIsAddingInline(false); setInlineCatName(''); setInlineCatColor('#10b981'); }}
                     className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 py-2.5 px-4 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-medium text-sm md:text-base">
                     ביטול
                   </button>
@@ -676,7 +757,7 @@ export default function Income() {
           {/* רשימת הכנסות */}
           {filteredIncomes.length > 0 && (
             <>
-              {/* מובייל */}
+              {/* מובייל - קלפים */}
               <div className="gsap-card block md:hidden space-y-3 mb-6">
                 {filteredIncomes.map((income) => {
                   const catColor = getCategoryColor(income.category);
@@ -715,10 +796,16 @@ export default function Income() {
                     </div>
                   );
                 })}
+                
+                {/* שורת סיכום למובייל */}
+                <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border border-green-200 dark:border-green-800 flex justify-between items-center mt-4">
+                  <span className="font-bold text-gray-700 dark:text-gray-300">סה"כ ({filteredIncomes.length} הכנסות)</span>
+                  <span className="font-bold text-xl text-green-600 dark:text-green-400">₪{totalIncome.toLocaleString()}</span>
+                </div>
               </div>
 
-              {/* דסקטופ */}
-              <div className="gsap-card hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors">
+              {/* דסקטופ - טבלה */}
+              <div className="gsap-card hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors mb-6">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-green-50 dark:bg-green-900/20 border-b border-gray-200 dark:border-gray-700 transition-colors">
@@ -765,6 +852,18 @@ export default function Income() {
                         );
                       })}
                     </tbody>
+                    {/* ✅ תיקון 1: שורת סיכום דסקטופ — text-right לא text-left */}
+                    <tfoot className="bg-gray-50 dark:bg-gray-800/80 border-t-2 border-gray-200 dark:border-gray-700">
+                      <tr>
+                        <td colSpan="2" className="py-4 px-6 font-bold text-gray-700 dark:text-gray-300 text-right">
+                          סה"כ ({filteredIncomes.length} הכנסות)
+                        </td>
+                        <td className="py-4 px-6 font-bold text-xl text-green-600 dark:text-green-400">
+                          ₪{totalIncome.toLocaleString()}
+                        </td>
+                        <td colSpan="2"></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
