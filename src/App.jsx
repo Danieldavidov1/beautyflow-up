@@ -9,6 +9,8 @@ import Budget from './components/dashboard/Budget';
 import Reports from './components/dashboard/Reports';
 import Goals from './components/dashboard/Goals';
 import Tasks from './components/dashboard/Tasks';
+// ✅ הוספת הייבוא עבור דף התבניות החכמות
+import SmartTemplates from './components/dashboard/SmartTemplates';
 import Settings from './components/dashboard/Settings';
 import { ToastProvider } from './context/ToastContext';
 import Login from './components/Login';
@@ -62,6 +64,9 @@ function App() {
         return <Goals />;
       case 'tasks':
         return <Tasks />;
+      // ✅ הוספת הניתוב החדש עבור דף התבניות
+      case 'templates':
+        return <SmartTemplates />;
       case 'settings':
         return <Settings />;
       default:

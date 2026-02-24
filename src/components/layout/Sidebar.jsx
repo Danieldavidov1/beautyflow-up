@@ -1,4 +1,15 @@
-import { LayoutDashboard, TrendingUp, TrendingDown, Target, Calculator, BarChart3, Settings, X, CheckSquare } from 'lucide-react';
+import { 
+  LayoutDashboard, 
+  TrendingUp, 
+  TrendingDown, 
+  Target, 
+  Calculator, 
+  BarChart3, 
+  Settings, 
+  X, 
+  CheckSquare, 
+  MessageCircle // ✅ הוספת האייקון עבור התבניות
+} from 'lucide-react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'מסך הבית', path: 'dashboard' },
@@ -7,12 +18,18 @@ const menuItems = [
   { icon: Calculator, label: 'תקציב', path: 'budget' },
   { icon: BarChart3, label: 'דוחות', path: 'reports' },
   { icon: Target, label: 'יעדים', path: 'goals' },
-  // ✅ הוספת פריט התפריט "משימות" החדש למערך הניווט
   { icon: CheckSquare, label: 'משימות', path: 'tasks' },
+  // ✅ הוספת פריט התפריט "תבניות הודעות" לפני ההגדרות
+  { icon: MessageCircle, label: 'תבניות הודעות', path: 'templates' },
   { icon: Settings, label: 'הגדרות', path: 'settings' },
 ];
 
-export default function Sidebar({ currentPage = 'dashboard', setCurrentPage = () => {}, isOpen = false, setIsOpen = () => {} }) {
+export default function Sidebar({ 
+  currentPage = 'dashboard', 
+  setCurrentPage = () => {}, 
+  isOpen = false, 
+  setIsOpen = () => {} 
+}) {
   const handleClick = (path) => {
     if (typeof setCurrentPage === 'function') {
       setCurrentPage(path);
@@ -51,7 +68,7 @@ export default function Sidebar({ currentPage = 'dashboard', setCurrentPage = ()
           </button>
         </div>
 
-        <nav className="space-y-2 pb-32"> {/* הוספנו padding למטה כדי שהכפתורים לא יוסתרו ע"י קופסת השדרוג */}
+        <nav className="space-y-2 pb-32">
           {menuItems.map((item) => (
             <button
               key={item.path}
