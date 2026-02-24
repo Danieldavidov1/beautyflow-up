@@ -4,25 +4,24 @@ import { gsap } from 'gsap';
 import {
   MessageCircle, Copy, Plus, Trash2, Pencil, X,
   CheckCheck, Phone, User, Scissors, Clock,
-  Tag, Filter, Hash,
+  Filter, Hash, Tag, Settings,
 } from 'lucide-react';
 import { useTemplates } from '../../hooks/useTemplates';
+import { useTemplateCategories } from '../../hooks/useTemplateCategories'; // ✅ חדש
 import { useToast } from '../../context/ToastContext';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const VARIABLES = [
-  { key: '{name}',    label: 'שם הלקוחה',   icon: User,     placeholder: 'לדוגמה: שרה'         },
-  { key: '{service}', label: 'סוג הטיפול',  icon: Scissors, placeholder: 'לדוגמה: מניקור ג׳ל'  },
-  { key: '{time}',    label: 'שעה / תאריך', icon: Clock,    placeholder: 'לדוגמה: יום ב׳ 14:00' },
-];
-
-const CATEGORIES = [
-  { id: 'reminders',  label: 'תזכורות',       color: 'bg-blue-100   text-blue-600   dark:bg-blue-900/30   dark:text-blue-400'   },
-  { id: 'marketing',  label: 'שיווק',         color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' },
-  { id: 'followup',   label: 'פולו-אפ',       color: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' },
-  { id: 'first_time', label: 'לקוחות חדשות', color: 'bg-green-100  text-green-600  dark:bg-green-900/30  dark:text-green-400'  },
-  { id: 'general',    label: 'כללי',          color: 'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-300'   },
+const COLOR_OPTIONS = [
+  { value: 'bg-blue-100   text-blue-600   dark:bg-blue-900/30   dark:text-blue-400',   preview: 'bg-blue-500'   },
+  { value: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400', preview: 'bg-purple-500' },
+  { value: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400', preview: 'bg-orange-500' },
+  { value: 'bg-green-100  text-green-600  dark:bg-green-900/30  dark:text-green-400',  preview: 'bg-green-500'  },
+  { value: 'bg-red-100    text-red-600    dark:bg-red-900/30    dark:text-red-400',    preview: 'bg-red-500'    },
+  { value: 'bg-pink-100   text-pink-600   dark:bg-pink-900/30   dark:text-pink-400',   preview: 'bg-pink-500'   },
+  { value: 'bg-teal-100   text-teal-600   dark:bg-teal-900/30   dark:text-teal-400',   preview: 'bg-teal-500'   },
+  { value: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400', preview: 'bg-yellow-500' },
+  { value: 'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-300',   preview: 'bg-gray-500'   },
 ];
 
 const QUICK_CHIPS = ['{name}', '{service}', '{time}'];
@@ -44,9 +43,234 @@ function sanitizePhone(raw) {
   return num;
 }
 
+function generateId() {
+  return `cat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ── CategoryManagerModal ───────────────────────────────────────────────────
+
+function CategoryManagerModal({ isOpen, onClose, categories, onSave }) {
+  const [list,      setList]      = useState([]);
+  const [newLabel,  setNewLabel]  = useState('');
+  const [newColor,  setNewColor]  = useState(COLOR_OPTIONS[0].value);
+  const [editingId, setEditingId] = useState(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editColor, setEditColor] = useState('');
+  const overlayRef = useRef(null);
+  const modalRef   = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setList([...categories]);
+    setNewLabel('');
+    setNewColor(COLOR_OPTIONS[0].value);
+    setEditingId(null);
+  }, [isOpen, categories]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    gsap.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.2 });
+    gsap.fromTo(modalRef.current,
+      { opacity: 0, scale: 0.92, y: 20 },
+      { opacity: 1, scale: 1, y: 0, duration: 0.3, ease: 'back.out(1.4)' }
+    );
+  }, [isOpen]);
+
+  const handleClose = () => {
+    gsap.to(modalRef.current,   { opacity: 0, scale: 0.94, y: 10, duration: 0.2 });
+    gsap.to(overlayRef.current, { opacity: 0, duration: 0.2, onComplete: onClose });
+  };
+
+  const handleAdd = () => {
+    if (!newLabel.trim()) return;
+    setList((p) => [...p, { id: generateId(), label: newLabel.trim(), color: newColor }]);
+    setNewLabel('');
+    setNewColor(COLOR_OPTIONS[0].value);
+  };
+
+  const handleDelete = (id) => {
+    setList((p) => p.filter((c) => c.id !== id));
+    if (editingId === id) setEditingId(null);
+  };
+
+  const startEdit = (cat) => {
+    setEditingId(cat.id);
+    setEditLabel(cat.label);
+    setEditColor(cat.color);
+  };
+
+  const saveEdit = () => {
+    if (!editLabel.trim()) return;
+    setList((p) => p.map((c) =>
+      c.id === editingId ? { ...c, label: editLabel.trim(), color: editColor } : c
+    ));
+    setEditingId(null);
+  };
+
+  const handleSaveAll = () => {
+    onSave(list);
+    handleClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+      onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }}
+    >
+      <div ref={modalRef}
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6
+                   max-h-[85vh] overflow-y-auto"
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Tag className="w-5 h-5 text-[#e5007e]" />
+            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100">ניהול קטגוריות</h2>
+          </div>
+          <button onClick={handleClose}
+            className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100
+                       dark:hover:bg-gray-700 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Existing categories */}
+        <div className="space-y-2 mb-5">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">
+            קטגוריות קיימות ({list.length})
+          </p>
+          {list.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-4">אין קטגוריות עדיין</p>
+          )}
+          {list.map((cat) => (
+            <div key={cat.id}
+              className="flex items-center gap-2 p-2.5 rounded-xl border
+                         border-gray-100 dark:border-gray-700
+                         bg-gray-50 dark:bg-gray-700/50"
+            >
+              {editingId === cat.id ? (
+                <>
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {COLOR_OPTIONS.map((c) => (
+                      <button key={c.value} type="button"
+                        onClick={() => setEditColor(c.value)}
+                        className={`w-5 h-5 rounded-full ${c.preview} transition-transform
+                                    ${editColor === c.value
+                                      ? 'ring-2 ring-offset-1 ring-[#e5007e] scale-110' : ''}`}
+                      />
+                    ))}
+                  </div>
+                  <input
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
+                    className="flex-1 text-xs px-2 py-1.5 rounded-lg border border-[#e5007e]
+                               bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100
+                               focus:outline-none"
+                    autoFocus
+                  />
+                  <button onClick={saveEdit}
+                    className="text-xs px-2.5 py-1.5 bg-[#e5007e] text-white rounded-lg
+                               hover:bg-[#b30062] transition-colors font-medium shrink-0">
+                    שמור
+                  </button>
+                  <button onClick={() => setEditingId(null)}
+                    className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${cat.color}`}>
+                    {cat.label}
+                  </span>
+                  <div className="flex gap-1 mr-auto">
+                    <button onClick={() => startEdit(cat)}
+                      className="p-1.5 text-gray-400 hover:text-[#e5007e]
+                                 hover:bg-pink-50 dark:hover:bg-pink-900/20
+                                 rounded-lg transition-colors">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => handleDelete(cat.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500
+                                 hover:bg-red-50 dark:hover:bg-red-900/20
+                                 rounded-lg transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Add new */}
+        <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mb-5">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">
+            + הוספת קטגוריה חדשה
+          </p>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {COLOR_OPTIONS.map((c) => (
+              <button key={c.value} type="button"
+                onClick={() => setNewColor(c.value)}
+                className={`w-6 h-6 rounded-full ${c.preview} transition-transform
+                            ${newColor === c.value
+                              ? 'ring-2 ring-offset-1 ring-[#e5007e] scale-110'
+                              : 'hover:scale-105'}`}
+              />
+            ))}
+          </div>
+          <div className="flex gap-2 items-center">
+            {newLabel.trim() && (
+              <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${newColor}`}>
+                {newLabel}
+              </span>
+            )}
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              placeholder="שם הקטגוריה..."
+              className="flex-1 text-sm px-3 py-2 rounded-xl border border-gray-300
+                         dark:border-gray-600 bg-white dark:bg-gray-700
+                         text-gray-800 dark:text-gray-100
+                         focus:outline-none focus:ring-2 focus:ring-[#e5007e] transition"
+            />
+            <button onClick={handleAdd} disabled={!newLabel.trim()}
+              className="px-3 py-2 bg-[#e5007e] text-white rounded-xl text-sm
+                         font-semibold hover:bg-[#b30062] disabled:opacity-40
+                         disabled:cursor-not-allowed transition-colors shrink-0">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Save all */}
+        <div className="flex gap-3">
+          <button onClick={handleClose}
+            className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
+                       text-sm font-medium text-gray-600 dark:text-gray-300
+                       hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            ביטול
+          </button>
+          <button onClick={handleSaveAll}
+            className="flex-1 py-2.5 rounded-xl bg-[#e5007e] text-white text-sm
+                       font-semibold hover:bg-[#b30062] transition-colors">
+            שמור שינויים
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── TemplateModal ──────────────────────────────────────────────────────────
 
-function TemplateModal({ isOpen, onClose, onSave, initialData }) {
+function TemplateModal({ isOpen, onClose, onSave, initialData, categories }) {
   const [form, setForm]     = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const overlayRef  = useRef(null);
@@ -104,7 +328,7 @@ function TemplateModal({ isOpen, onClose, onSave, initialData }) {
     setSaving(true);
     try {
       await onSave({ ...form, title: form.title.trim(), body: form.body.trim() });
-      handleClose(); // ✅ נסגר רק אחרי הצלחה
+      handleClose();
     } catch {
       // Toast מוצג ב-parent — Modal נשאר פתוח
     } finally {
@@ -141,24 +365,28 @@ function TemplateModal({ isOpen, onClose, onSave, initialData }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Categories */}
+          {/* Categories — dynamic from Firestore */}
           <div>
             <label className="block text-xs font-semibold text-gray-600
                               dark:text-gray-400 mb-2">
               קטגוריות (ניתן לבחור כמה)
             </label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORIES.map((cat) => (
-                <button key={cat.id} type="button" onClick={() => toggleCategory(cat.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
-                    form.categories.includes(cat.id)
-                      ? 'bg-[#e5007e] text-white border-[#e5007e]'
-                      : 'bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-600'
-                  }`}>
-                  {cat.label}
-                </button>
-              ))}
-            </div>
+            {categories.length === 0 ? (
+              <p className="text-xs text-gray-400">אין קטגוריות — הוסיפי מניהול קטגוריות</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {categories.map((cat) => (
+                  <button key={cat.id} type="button" onClick={() => toggleCategory(cat.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                      form.categories.includes(cat.id)
+                        ? 'bg-[#e5007e] text-white border-[#e5007e]'
+                        : 'bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-600'
+                    }`}>
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Title */}
@@ -221,13 +449,12 @@ function TemplateModal({ isOpen, onClose, onSave, initialData }) {
 
 // ── TemplateCard ───────────────────────────────────────────────────────────
 
-function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
+function TemplateCard({ template, vars, phone, onEdit, onDelete, categories }) {
   const [copied, setCopied] = useState(false);
   const cardRef   = useRef(null);
   const processed = processText(template.body, vars);
   const hasPhone  = phone.trim().length > 0;
 
-  // ✅ GSAP entrance — שוחזר מהגרסה המקורית
   useEffect(() => {
     gsap.fromTo(cardRef.current,
       { opacity: 0, y: 20 },
@@ -256,9 +483,9 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
                  dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow
                  p-4 flex flex-col h-full"
     >
-      {/* Header */}
       <div className="flex justify-between items-start mb-2">
-        <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm leading-snug truncate flex-1 ml-2">
+        <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm leading-snug
+                       truncate flex-1 ml-2">
           {template.title}
         </h3>
         <div className="flex gap-1 shrink-0">
@@ -275,11 +502,11 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
         </div>
       </div>
 
-      {/* Category tags */}
+      {/* Dynamic category tags — from Firestore */}
       {(template.categories ?? []).length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {template.categories.map((catId) => {
-            const cat = CATEGORIES.find((c) => c.id === catId);
+            const cat = categories.find((c) => c.id === catId);
             return cat ? (
               <span key={catId}
                 className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${cat.color}`}>
@@ -290,7 +517,6 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
         </div>
       )}
 
-      {/* Preview */}
       <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 mb-4 flex-1
                       border border-gray-100 dark:border-gray-600 min-h-[60px]">
         <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
@@ -298,7 +524,6 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
         </p>
       </div>
 
-      {/* Actions */}
       <div className="flex gap-2 mt-auto">
         <button onClick={handleCopy}
           className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all
@@ -328,14 +553,16 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete }) {
 
 export default function SmartTemplates({ prefilledContact = null }) {
   const { templates, loading, addTemplate, updateTemplate, deleteTemplate } = useTemplates();
+  const { categories, saveCategories } = useTemplateCategories(); // ✅ מ-Firestore
   const { showToast } = useToast();
 
-  const [filter,  setFilter]  = useState('all');
-  const [phone,   setPhone]   = useState(prefilledContact?.phone ?? '');
-  const [name,    setName]    = useState(prefilledContact?.name  ?? '');
-  const [service, setService] = useState('');
-  const [time,    setTime]    = useState('');
-  const [modalOpen,   setModalOpen]   = useState(false);
+  const [filter,     setFilter]     = useState('all');
+  const [phone,      setPhone]      = useState(prefilledContact?.phone ?? '');
+  const [name,       setName]       = useState(prefilledContact?.name  ?? '');
+  const [service,    setService]    = useState('');
+  const [time,       setTime]       = useState('');
+  const [modalOpen,  setModalOpen]  = useState(false);
+  const [catMgrOpen, setCatMgrOpen] = useState(false);
   const [editingTmpl, setEditingTmpl] = useState(null);
 
   useEffect(() => {
@@ -349,7 +576,7 @@ export default function SmartTemplates({ prefilledContact = null }) {
     filter === 'all' ? templates : templates.filter((t) => (t.categories ?? []).includes(filter)),
   [templates, filter]);
 
-  // ── CRUD handlers ──────────────────────────────────────────────────────
+  // ── CRUD ──────────────────────────────────────────────────────────────
 
   const handleSave = async (formData) => {
     try {
@@ -362,17 +589,27 @@ export default function SmartTemplates({ prefilledContact = null }) {
       }
     } catch {
       showToast('שגיאה בשמירה, נסה שוב', 'error');
-      throw new Error('save failed'); // ✅ מונע סגירת Modal
+      throw new Error('save failed');
     }
   };
 
-  // ✅ handleDelete עם try/catch + Toast — תוקן מהגרסה של Gemini
   const handleDelete = async (templateId) => {
     try {
       await deleteTemplate(templateId);
       showToast('התבנית נמחקה', 'success');
     } catch {
       showToast('שגיאה במחיקה, נסה שוב', 'error');
+    }
+  };
+
+  // ✅ שמירת קטגוריות ב-Firestore (לא localStorage)
+  const handleSaveCategories = async (newList) => {
+    try {
+      await saveCategories(newList);
+      if (filter !== 'all' && !newList.find((c) => c.id === filter)) setFilter('all');
+      showToast('הקטגוריות עודכנו ✓', 'success');
+    } catch {
+      showToast('שגיאה בשמירת קטגוריות', 'error');
     }
   };
 
@@ -394,17 +631,27 @@ export default function SmartTemplates({ prefilledContact = null }) {
             נהלי את הקשר עם הלקוחות בקלות וביעילות
           </p>
         </div>
-        <button onClick={handleOpenAdd}
-          className="bg-[#e5007e] hover:bg-[#b30062] text-white px-5 py-3 rounded-2xl
-                     font-bold flex items-center justify-center gap-2
-                     shadow-lg shadow-[#e5007e]/20 transition-colors">
-          <Plus className="w-5 h-5" /> תבנית חדשה
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setCatMgrOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border
+                       border-gray-300 dark:border-gray-600 text-sm font-semibold
+                       text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800
+                       hover:border-[#e5007e] hover:text-[#e5007e] transition-colors">
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">קטגוריות</span>
+          </button>
+          <button onClick={handleOpenAdd}
+            className="bg-[#e5007e] hover:bg-[#b30062] text-white px-5 py-2.5 rounded-2xl
+                       font-bold flex items-center justify-center gap-2
+                       shadow-lg shadow-[#e5007e]/20 transition-colors">
+            <Plus className="w-5 h-5" /> תבנית חדשה
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-        {/* ── Sidebar ── */}
+        {/* Sidebar */}
         <div className="lg:col-span-1 space-y-5">
 
           {/* Control Panel */}
@@ -415,11 +662,10 @@ export default function SmartTemplates({ prefilledContact = null }) {
               <User className="w-4 h-4 text-[#e5007e]" /> פרטי לקוחה לתצוגה
             </h2>
             <div className="space-y-3">
-              {/* Phone */}
               <div>
                 <label className="text-xs font-semibold text-gray-500
-                                  dark:text-gray-400 block mb-1 flex items-center gap-1">
-                  <Phone className="w-3 h-3 text-[#e5007e]" /> טלפון לשליחה
+                                  dark:text-gray-400 block mb-1">
+                  טלפון לשליחה
                 </label>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)}
                   placeholder="050-0000000" type="tel" dir="ltr"
@@ -433,11 +679,10 @@ export default function SmartTemplates({ prefilledContact = null }) {
                   </p>
                 )}
               </div>
-              {/* Name / Service / Time */}
               {[
-                { label: 'שם הלקוחה',   val: name,    set: setName,    ph: 'שרה'           },
-                { label: 'סוג הטיפול',  val: service, set: setService, ph: "לק ג'ל"         },
-                { label: 'שעה / תאריך', val: time,    set: setTime,    ph: "יום ג׳ ב-10:00" },
+                { label: 'שם הלקוחה',   val: name,    set: setName,    ph: 'שרה'            },
+                { label: 'סוג הטיפול',  val: service, set: setService, ph: "לק ג'ל"          },
+                { label: 'שעה / תאריך', val: time,    set: setTime,    ph: "יום ג׳ ב-10:00"  },
               ].map(({ label, val, set, ph }) => (
                 <div key={label}>
                   <label className="text-xs font-semibold text-gray-500
@@ -451,7 +696,7 @@ export default function SmartTemplates({ prefilledContact = null }) {
                 </div>
               ))}
               <p className="text-xs text-gray-400 dark:text-gray-500 pt-1 leading-relaxed">
-                💡 הפרטים מתעדכנים בתצוגה בזמן אמת ולא נשמרים במסד הנתונים.
+                💡 הפרטים מתעדכנים בזמן אמת ולא נשמרים.
               </p>
             </div>
           </div>
@@ -464,27 +709,33 @@ export default function SmartTemplates({ prefilledContact = null }) {
               <Filter className="w-4 h-4 text-[#e5007e]" /> סינון לפי קטגוריה
             </h2>
             <div className="flex flex-col gap-1.5">
-              {[{ id: 'all', label: 'כל התבניות' }, ...CATEGORIES].map((cat) => (
+              {[{ id: 'all', label: 'כל התבניות' }, ...categories].map((cat) => (
                 <button key={cat.id} onClick={() => setFilter(cat.id)}
                   className={`text-right px-4 py-2 rounded-xl text-xs font-medium
-                              transition-colors ${
+                              transition-colors flex items-center justify-between ${
                     filter === cat.id
                       ? 'bg-[#e5007e] text-white'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                   }`}>
-                  {cat.label}
+                  <span>{cat.label}</span>
                   {cat.id !== 'all' && (
-                    <span className="mr-1 opacity-60">
+                    <span className="opacity-60 text-[10px]">
                       ({templates.filter((t) => (t.categories ?? []).includes(cat.id)).length})
                     </span>
                   )}
                 </button>
               ))}
             </div>
+            <button onClick={() => setCatMgrOpen(true)}
+              className="w-full mt-3 flex items-center justify-center gap-1.5 text-xs
+                         text-gray-400 hover:text-[#e5007e] transition-colors py-1">
+              <Settings className="w-3 h-3" />
+              נהל קטגוריות
+            </button>
           </div>
         </div>
 
-        {/* ── Templates Grid ── */}
+        {/* Templates Grid */}
         <div className="lg:col-span-3">
           {loading ? (
             <div className="flex justify-center py-20">
@@ -513,8 +764,9 @@ export default function SmartTemplates({ prefilledContact = null }) {
                   template={tmpl}
                   vars={vars}
                   phone={phone}
+                  categories={categories}
                   onEdit={handleOpenEdit}
-                  onDelete={handleDelete} // ✅ עם try/catch
+                  onDelete={handleDelete}
                 />
               ))}
             </div>
@@ -527,6 +779,14 @@ export default function SmartTemplates({ prefilledContact = null }) {
         onClose={handleClose}
         onSave={handleSave}
         initialData={editingTmpl}
+        categories={categories}
+      />
+
+      <CategoryManagerModal
+        isOpen={catMgrOpen}
+        onClose={() => setCatMgrOpen(false)}
+        categories={categories}
+        onSave={handleSaveCategories}
       />
     </div>
   );
