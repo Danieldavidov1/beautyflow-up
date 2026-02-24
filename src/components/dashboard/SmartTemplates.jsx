@@ -7,7 +7,7 @@ import {
   Filter, Hash, Tag, Settings,
 } from 'lucide-react';
 import { useTemplates } from '../../hooks/useTemplates';
-import { useTemplateCategories } from '../../hooks/useTemplateCategories'; // ✅ חדש
+import { useTemplateCategories } from '../../hooks/useTemplateCategories';
 import { useToast } from '../../context/ToastContext';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -125,7 +125,6 @@ function CategoryManagerModal({ isOpen, onClose, categories, onSave }) {
                    max-h-[85vh] overflow-y-auto"
         dir="rtl"
       >
-        {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <Tag className="w-5 h-5 text-[#e5007e]" />
@@ -138,7 +137,6 @@ function CategoryManagerModal({ isOpen, onClose, categories, onSave }) {
           </button>
         </div>
 
-        {/* Existing categories */}
         <div className="space-y-2 mb-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">
             קטגוריות קיימות ({list.length})
@@ -208,7 +206,6 @@ function CategoryManagerModal({ isOpen, onClose, categories, onSave }) {
           ))}
         </div>
 
-        {/* Add new */}
         <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mb-5">
           <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">
             + הוספת קטגוריה חדשה
@@ -249,7 +246,6 @@ function CategoryManagerModal({ isOpen, onClose, categories, onSave }) {
           </div>
         </div>
 
-        {/* Save all */}
         <div className="flex gap-3">
           <button onClick={handleClose}
             className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
@@ -365,7 +361,6 @@ function TemplateModal({ isOpen, onClose, onSave, initialData, categories }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Categories — dynamic from Firestore */}
           <div>
             <label className="block text-xs font-semibold text-gray-600
                               dark:text-gray-400 mb-2">
@@ -389,7 +384,6 @@ function TemplateModal({ isOpen, onClose, onSave, initialData, categories }) {
             )}
           </div>
 
-          {/* Title */}
           <div>
             <label className="block text-xs font-semibold text-gray-600
                               dark:text-gray-400 mb-1">
@@ -403,7 +397,6 @@ function TemplateModal({ isOpen, onClose, onSave, initialData, categories }) {
             />
           </div>
 
-          {/* Body */}
           <div>
             <label className="block text-xs font-semibold text-gray-600
                               dark:text-gray-400 mb-1">
@@ -502,7 +495,6 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete, categories }) {
         </div>
       </div>
 
-      {/* Dynamic category tags — from Firestore */}
       {(template.categories ?? []).length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
           {template.categories.map((catId) => {
@@ -553,16 +545,16 @@ function TemplateCard({ template, vars, phone, onEdit, onDelete, categories }) {
 
 export default function SmartTemplates({ prefilledContact = null }) {
   const { templates, loading, addTemplate, updateTemplate, deleteTemplate } = useTemplates();
-  const { categories, saveCategories } = useTemplateCategories(); // ✅ מ-Firestore
+  const { categories, saveCategories } = useTemplateCategories();
   const { showToast } = useToast();
 
-  const [filter,     setFilter]     = useState('all');
-  const [phone,      setPhone]      = useState(prefilledContact?.phone ?? '');
-  const [name,       setName]       = useState(prefilledContact?.name  ?? '');
-  const [service,    setService]    = useState('');
-  const [time,       setTime]       = useState('');
-  const [modalOpen,  setModalOpen]  = useState(false);
-  const [catMgrOpen, setCatMgrOpen] = useState(false);
+  const [filter,      setFilter]     = useState('all');
+  const [phone,       setPhone]      = useState(prefilledContact?.phone ?? '');
+  const [name,        setName]       = useState(prefilledContact?.name  ?? '');
+  const [service,     setService]    = useState('');
+  const [time,        setTime]       = useState('');
+  const [modalOpen,   setModalOpen]  = useState(false);
+  const [catMgrOpen,  setCatMgrOpen] = useState(false);
   const [editingTmpl, setEditingTmpl] = useState(null);
 
   useEffect(() => {
@@ -575,8 +567,6 @@ export default function SmartTemplates({ prefilledContact = null }) {
   const filteredTemplates = useMemo(() =>
     filter === 'all' ? templates : templates.filter((t) => (t.categories ?? []).includes(filter)),
   [templates, filter]);
-
-  // ── CRUD ──────────────────────────────────────────────────────────────
 
   const handleSave = async (formData) => {
     try {
@@ -602,7 +592,6 @@ export default function SmartTemplates({ prefilledContact = null }) {
     }
   };
 
-  // ✅ שמירת קטגוריות ב-Firestore (לא localStorage)
   const handleSaveCategories = async (newList) => {
     try {
       await saveCategories(newList);
@@ -618,10 +607,12 @@ export default function SmartTemplates({ prefilledContact = null }) {
   const handleClose    = ()     => { setModalOpen(false);  setEditingTmpl(null); };
 
   return (
-    <div className="p-4 md:p-8" dir="rtl">
+    // ✅ תיקון: הגובה של העמוד מוגבל לגובה הviewer — הגלילה מנוהלת פנימית
+    <div className="flex flex-col h-full" dir="rtl">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      {/* Header — קבוע בראש */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between
+                      gap-4 px-4 md:px-8 pt-6 pb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <MessageCircle className="w-7 h-7 text-[#e5007e]" />
@@ -631,7 +622,7 @@ export default function SmartTemplates({ prefilledContact = null }) {
             נהלי את הקשר עם הלקוחות בקלות וביעילות
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <button onClick={() => setCatMgrOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border
                        border-gray-300 dark:border-gray-600 text-sm font-semibold
@@ -649,14 +640,17 @@ export default function SmartTemplates({ prefilledContact = null }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      {/* ✅ תוכן ראשי — גריד עם גלילה עצמאית לכל עמודה */}
+      <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0 px-4 md:px-8 pb-6">
 
-        {/* Sidebar */}
-        <div className="lg:col-span-1 space-y-5">
+        {/* ── Sidebar — גלילה עצמאית, לא sticky ── */}
+        <div className="lg:w-64 xl:w-72 shrink-0 flex flex-col gap-5
+                        lg:h-full lg:overflow-y-auto lg:pr-1
+                        scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
 
-          {/* Control Panel */}
+          {/* Control Panel — ✅ הוסר sticky */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 border
-                          border-gray-100 dark:border-gray-700 shadow-sm sticky top-24">
+                          border-gray-100 dark:border-gray-700 shadow-sm">
             <h2 className="text-sm font-bold text-gray-800 dark:text-gray-100
                            mb-4 flex items-center gap-2">
               <User className="w-4 h-4 text-[#e5007e]" /> פרטי לקוחה לתצוגה
@@ -735,8 +729,9 @@ export default function SmartTemplates({ prefilledContact = null }) {
           </div>
         </div>
 
-        {/* Templates Grid */}
-        <div className="lg:col-span-3">
+        {/* ── Templates Grid — גלילה עצמאית ── */}
+        <div className="flex-1 min-w-0 lg:h-full lg:overflow-y-auto lg:pl-1
+                        scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
           {loading ? (
             <div className="flex justify-center py-20">
               <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent
@@ -757,7 +752,7 @@ export default function SmartTemplates({ prefilledContact = null }) {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
               {filteredTemplates.map((tmpl) => (
                 <TemplateCard
                   key={tmpl.id}
