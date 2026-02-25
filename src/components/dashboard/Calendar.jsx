@@ -1,15 +1,16 @@
 // src/components/dashboard/Calendar.jsx
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useAppointments } from '../../hooks/useAppointments';
-import { useCustomers }    from '../../hooks/useCustomers';
-import { useServices }     from '../../hooks/useServices';
-import { useTransactions } from '../../hooks/useTransactions';
-import { useToast }        from '../../context/ToastContext';
+import { useAppointments }      from '../../hooks/useAppointments';
+import { useCustomers }         from '../../hooks/useCustomers';
+import { useServices }          from '../../hooks/useServices';
+import { useTransactions }      from '../../hooks/useTransactions';
+import { useBusinessSettings }  from '../../hooks/useBusinessSettings'; // ✅ חדש
+import { useToast }             from '../../context/ToastContext';
 import {
   ChevronRight, ChevronLeft, Calendar as CalendarIcon,
   Plus, Clock, User, UserPlus, X, Trash2, CheckCircle,
   AlertCircle, Edit, Search, Tag, Wallet, Check,
-  LayoutList, CalendarDays, Minus,
+  LayoutList, CalendarDays, Minus, AlertTriangle,
 } from 'lucide-react';
 import gsap from 'gsap';
 
@@ -48,6 +49,34 @@ function getWeekDays(weekStart) {
   });
 }
 
+// ✅ Helper: בדיקת שעות פעילות — מוזרקת לתוך Modal ו-WeekView
+function checkTimeInBusinessHours(businessHours, closedDays = [], date, startTime, endTime) {
+  if (!date || !startTime || !endTime || !businessHours) return { allowed: true };
+
+  // יום חופשה ספציפי
+  if (closedDays.includes(date)) {
+    return { allowed: false, reason: 'יום חופשה / סגור' };
+  }
+
+  const dayIndex = new Date(date + 'T12:00:00').getDay(); // T12 מונע בעיות timezone
+  const cfg      = businessHours[dayIndex];
+
+  if (!cfg || !cfg.isActive) {
+    return { allowed: false, reason: `יום ${HE_DAYS[dayIndex]} — העסק סגור` };
+  }
+
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+  if (toMin(startTime) < toMin(cfg.start)) {
+    return { allowed: false, reason: `לפני שעת הפתיחה (${cfg.start})` };
+  }
+  if (toMin(endTime) > toMin(cfg.end)) {
+    return { allowed: false, reason: `אחרי שעת הסגירה (${cfg.end})` };
+  }
+
+  return { allowed: true };
+}
+
 const HE_DAYS       = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const HE_DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
@@ -74,7 +103,6 @@ const EMPTY_FORM = {
 };
 
 // ── ServiceSelector ────────────────────────────────────────────────────────
-// ✅ תוספת: כפתור X להסרה מלאה של שירות (בנוסף ל-Minus שמוריד כמות)
 
 function ServiceSelector({ activeServices, selectedServices, onChange, startTime }) {
 
@@ -82,7 +110,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
     if (!serviceId || serviceId === 'placeholder') return;
 
     if (serviceId === 'custom') {
-      // custom מטופל בקומפוננט האב
       onChange(selectedServices, true);
       return;
     }
@@ -114,7 +141,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
     onChange(updated);
   };
 
-  // ✅ הסרה מיידית של שירות בלחיצת X
   const removeService = (serviceId) => {
     onChange(selectedServices.filter((s) => s.serviceId !== serviceId));
   };
@@ -125,7 +151,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
 
   return (
     <div className="space-y-3">
-      {/* רשימת שירותים שנבחרו */}
       {selectedServices.length > 0 && (
         <div className="space-y-2">
           {selectedServices.map((s) => (
@@ -135,7 +160,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
                          border border-pink-100 dark:border-[#e5007e]/20
                          group transition-all">
 
-              {/* ✅ כפתור X להסרה — נראה בhover */}
               <button
                 type="button"
                 onClick={() => removeService(s.serviceId)}
@@ -158,7 +182,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
                 {s.duration * s.qty} דק׳
               </span>
 
-              {/* שלטי כמות */}
               <div className="flex items-center gap-1 shrink-0">
                 <button type="button"
                   onClick={() => changeQty(s.serviceId, -1)}
@@ -189,7 +212,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
         </div>
       )}
 
-      {/* Dropdown להוספת שירות */}
       <select
         value="placeholder"
         onChange={(e) => addService(e.target.value)}
@@ -209,7 +231,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
         <option value="custom">— טיפול מותאם אישית / אחר —</option>
       </select>
 
-      {/* סיכום */}
       {selectedServices.length > 0 && (
         <div className="flex justify-between items-center text-xs
                         text-gray-500 dark:text-gray-400 px-1 pt-0.5">
@@ -225,7 +246,7 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
 
       {activeServices.length === 0 && (
         <p className="text-[11px] text-amber-500 pr-1">
-          💡 פתחי "שירותים ומחירון" כדי להוסיף טיפולים
+          💡 פתחי &quot;שירותים ומחירון&quot; כדי להוסיף טיפולים
         </p>
       )}
     </div>
@@ -351,7 +372,7 @@ function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel 
             <p className="text-sm text-gray-500 dark:text-gray-400">
               למחוק את התור{' '}
               <span className="font-semibold text-gray-700 dark:text-gray-200">
-                "{appointmentTitle}"
+                &quot;{appointmentTitle}&quot;
               </span>? פעולה זו אינה ניתנת לביטול.
             </p>
           </div>
@@ -398,7 +419,6 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
       <div ref={modalRef}
         className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
         dir="rtl">
-
         <div className="bg-emerald-50 dark:bg-emerald-900/20 p-6 flex flex-col
                         items-center text-center border-b
                         border-emerald-100 dark:border-emerald-800/50">
@@ -456,8 +476,13 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
 }
 
 // ── AppointmentModal ───────────────────────────────────────────────────────
+// ✅ מקבל businessHours + closedDays כ-props מהקומפוננט האב
+// (לא קורא את ה-hook ישירות — מונע קריאת Firestore כפולה)
 
-function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }) {
+function AppointmentModal({
+  isOpen, onClose, onSave, selectedDate, initialData,
+  businessHours, closedDays,  // ✅ חדש
+}) {
   const { customers, addCustomer } = useCustomers();
   const { activeServices }         = useServices();
   const { showToast }              = useToast();
@@ -475,14 +500,22 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
 
   const isEditing = !!initialData?.id;
 
+  // ✅ בדיקת שעות פעילות — מחושבת בזמן אמת לפי תאריך + שעות בטופס
+  const businessHoursCheck = useMemo(() => {
+    if (!businessHours || !formData.date || !formData.startTime || !formData.endTime) {
+      return { allowed: true };
+    }
+    return checkTimeInBusinessHours(
+      businessHours, closedDays ?? [],
+      formData.date, formData.startTime, formData.endTime
+    );
+  }, [businessHours, closedDays, formData.date, formData.startTime, formData.endTime]);
+
   // ── איפוס בכל פתיחה ───────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
 
     if (initialData) {
-      // ✅ תיקון עריכה: טוען services קיימים
-      // אם יש services מערך — טוען אותם
-      // אם אין (תור ישן) — מנסה לבנות מ-title/price
       const existingServices = initialData.services?.length > 0
         ? initialData.services
         : [];
@@ -493,7 +526,6 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
         services: existingServices,
       });
 
-      // אם יש title אבל אין services (תור ישן שנוצר לפני המבנה החדש)
       if (!initialData.services?.length && initialData.title) {
         setCustomTitle(initialData.title);
         setShowCustomInput(true);
@@ -530,8 +562,7 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
 
   const set = (field, value) => setFormData((p) => ({ ...p, [field]: value }));
 
-  // ── שינוי services — מחשב title/price/endTime אוטומטית ───────────
-  // ✅ תיקון: ServiceSelector מעביר (services, isCustom) 
+  // ── שינוי services ─────────────────────────────────────────────────
   const handleServicesChange = useCallback((newServices, isCustom = false) => {
     if (isCustom) {
       setShowCustomInput(true);
@@ -603,6 +634,12 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
     if (!finalTitle)          { showToast('יש לבחור לפחות טיפול אחד', 'error'); return; }
     if (formData.endTime <= formData.startTime) {
       showToast('שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error'); return;
+    }
+
+    // ✅ אזהרה על שעות מחוץ לפעילות — לא חוסמת, רק מזהירה
+    if (!businessHoursCheck.allowed) {
+      showToast(`⚠️ התור מחוץ לשעות הפעילות: ${businessHoursCheck.reason}`, 'warning');
+      // ממשיכים בכל זאת (לא חוסמים)
     }
 
     setSaving(true);
@@ -722,7 +759,7 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
             )}
           </div>
 
-          {/* ── טיפולים ──────────────────────────────────────────────── */}
+          {/* ── טיפולים ────────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-gray-600
                               dark:text-gray-400 mb-1">
@@ -799,6 +836,23 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData }
                 className={inputCls} />
             </div>
           </div>
+
+          {/* ✅ התראת שעות פעילות — מופיעה בזמן אמת */}
+          {!businessHoursCheck.allowed && (
+            <div className="flex items-start gap-2 p-3 rounded-xl
+                            bg-amber-50 dark:bg-amber-900/20
+                            border border-amber-200 dark:border-amber-700/50">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  מחוץ לשעות הפעילות
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                  {businessHoursCheck.reason} — ניתן לשמור בכל זאת
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* משך */}
           {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (
@@ -950,29 +1004,49 @@ function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
 }
 
 // ── WeekView ───────────────────────────────────────────────────────────────
+// ✅ מקבל businessHours + closedDays — מציג ימים סגורים בצורה ויזואלית
 
-function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay }) {
+function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay,
+                    businessHours, closedDays }) {  // ✅ חדש
   const today = toDateStr(new Date());
 
   return (
     <div className="grid grid-cols-7 gap-1 md:gap-2">
       {weekDays.map((day) => {
-        const dateStr = toDateStr(day);
-        const apts    = getByDate(dateStr);
-        const isToday = dateStr === today;
-        const isSel   = dateStr === selectedDate;
+        const dateStr  = toDateStr(day);
+        const apts     = getByDate(dateStr);
+        const isToday  = dateStr === today;
+        const isSel    = dateStr === selectedDate;
+
+        // ✅ בדיקת יום סגור לצורך סימון ויזואלי
+        const dayIndex = day.getDay();
+        const dayCfg   = businessHours?.[dayIndex];
+        const isClosed = closedDays?.includes(dateStr) ||
+                         (businessHours && (!dayCfg || !dayCfg.isActive));
 
         return (
           <div key={dateStr}
             onClick={() => onDayClick(day)}
             className={`min-h-[110px] md:min-h-[140px] rounded-xl border p-1.5 md:p-2
-                        cursor-pointer transition-all group ${
+                        cursor-pointer transition-all group relative ${
               isSel
                 ? 'border-[#e5007e] bg-pink-50/50 dark:bg-[#e5007e]/10 shadow-sm'
                 : isToday
                 ? 'border-blue-300 bg-blue-50/40 dark:bg-blue-900/10 dark:border-blue-700/40'
+                : isClosed
+                ? 'border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40'  // ✅ יום סגור
                 : 'border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-pink-200 dark:hover:border-pink-800/40 hover:shadow-sm'
             }`}>
+
+            {/* ✅ תג "סגור" לימים סגורים */}
+            {isClosed && !isSel && (
+              <div className="absolute top-1 left-1">
+                <span className="text-[8px] font-bold text-gray-400
+                                 dark:text-gray-600 leading-none">
+                  סגור
+                </span>
+              </div>
+            )}
 
             {/* ראש היום */}
             <div className="flex flex-col items-center mb-2">
@@ -982,6 +1056,8 @@ function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay }
                   ? 'bg-blue-500 text-white'
                   : isSel
                   ? 'bg-[#e5007e] text-white'
+                  : isClosed
+                  ? 'text-gray-400 dark:text-gray-600'   // ✅ צבע מעומעם לסגור
                   : 'text-gray-600 dark:text-gray-300'
               }`}>
                 {day.getDate()}
@@ -1013,8 +1089,8 @@ function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay }
               )}
             </div>
 
-            {/* כפתור + */}
-            {apts.length === 0 && (
+            {/* כפתור + — רק בימים פעילים */}
+            {apts.length === 0 && !isClosed && (
               <div className="flex items-center justify-center mt-2">
                 <button
                   onClick={(e) => { e.stopPropagation(); onAddForDay(day); }}
@@ -1024,6 +1100,16 @@ function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay }
                              transition-colors flex items-center justify-center">
                   <Plus className="w-3 h-3" />
                 </button>
+              </div>
+            )}
+
+            {/* ✅ Pattern ויזואלי לימים סגורים */}
+            {isClosed && apts.length === 0 && (
+              <div className="flex items-center justify-center mt-3 opacity-30">
+                <div className="w-8 h-px bg-gray-400 dark:bg-gray-600
+                                rotate-45 absolute" />
+                <div className="w-8 h-px bg-gray-400 dark:bg-gray-600
+                                -rotate-45 absolute" />
               </div>
             )}
           </div>
@@ -1040,9 +1126,16 @@ export default function Calendar() {
     loading: apptLoading, error,
     getByDate, addAppointment, updateAppointment, deleteAppointment, stats,
   } = useAppointments();
-  const { loading: srvLoading } = useServices();
-  const { addTransaction }      = useTransactions('income');
-  const { showToast }           = useToast();
+  const { loading: srvLoading }                   = useServices();
+  const { addTransaction }                        = useTransactions('income');
+  const { showToast }                             = useToast();
+
+  // ✅ שעות פעילות — קריאה אחת, מועברת ל-Modal ול-WeekView
+  const {
+    businessHours,
+    closedDays,
+    loading: settingsLoading,
+  } = useBusinessSettings();
 
   const [currentDate,  setCurrentDate]  = useState(new Date());
   const [viewMode,     setViewMode]     = useState('day');
@@ -1052,6 +1145,7 @@ export default function Calendar() {
   const [chargingApt,  setChargingApt]  = useState(null);
   const listRef = useRef(null);
 
+  // ✅ settingsLoading לא חוסם את הטעינה — שעות פעילות לא קריטיות לפתיחת עמוד
   const loading = apptLoading || srvLoading;
 
   const dateString        = useMemo(() => toDateStr(currentDate), [currentDate]);
@@ -1059,6 +1153,15 @@ export default function Calendar() {
 
   const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
   const weekDays  = useMemo(() => getWeekDays(weekStart),    [weekStart]);
+
+  // ✅ בדיקת שעות פעילות ליום הנוכחי שמוצג — לבאנר בתצוגה יומית
+  const todayBusinessStatus = useMemo(() => {
+    if (!businessHours || settingsLoading) return null;
+    const dayIndex = currentDate.getDay();
+    const cfg      = businessHours[dayIndex];
+    const isClosed = closedDays?.includes(dateString) || !cfg || !cfg.isActive;
+    return { isClosed, cfg };
+  }, [businessHours, closedDays, currentDate, dateString, settingsLoading]);
 
   // ── אנימציה ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1136,7 +1239,7 @@ export default function Calendar() {
     try {
       await addTransaction({
         amount:   Number(apt.price),
-        category: 'טיפולים',
+        category: apt.services?.[0]?.title ?? 'טיפולים', // ✅ קטגוריה מהשירות הראשון
         source:   apt.customerName || 'לקוחה מהיומן',
         date:     toDateStr(new Date()),
         notes:    `תור אוטומטי: ${apt.title}`,
@@ -1230,6 +1333,17 @@ export default function Calendar() {
               {viewMode === 'day' && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   יום {HE_DAYS[currentDate.getDay()]}
+                  {/* ✅ סטטוס שעות פעילות ליד שם היום */}
+                  {todayBusinessStatus?.isClosed && (
+                    <span className="mr-2 text-[10px] font-semibold text-amber-500">
+                      · סגור
+                    </span>
+                  )}
+                  {todayBusinessStatus && !todayBusinessStatus.isClosed && todayBusinessStatus.cfg && (
+                    <span className="mr-2 text-[10px] text-gray-400">
+                      · {todayBusinessStatus.cfg.start}–{todayBusinessStatus.cfg.end}
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -1278,6 +1392,24 @@ export default function Calendar() {
         </div>
       )}
 
+      {/* ✅ באנר יום סגור בתצוגה יומית */}
+      {viewMode === 'day' && todayBusinessStatus?.isClosed && (
+        <div className="flex items-center gap-3 p-3 rounded-xl
+                        bg-amber-50 dark:bg-amber-900/20
+                        border border-amber-200 dark:border-amber-700/50">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            יום {HE_DAYS[currentDate.getDay()]} מוגדר כיום סגור — ניתן לקבוע תורים בכל זאת
+          </p>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="mr-auto text-xs text-amber-600 dark:text-amber-400
+                       font-semibold underline hover:no-underline transition-all">
+            + קבעי תור
+          </button>
+        </div>
+      )}
+
       {/* ── תצוגה שבועית ───────────────────────────────────────────── */}
       {viewMode === 'week' && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm
@@ -1297,6 +1429,8 @@ export default function Calendar() {
             onDayClick={(day) => { setCurrentDate(day); setViewMode('day'); }}
             selectedDate={dateString}
             onAddForDay={openAddForDay}
+            businessHours={businessHours}    // ✅ חדש
+            closedDays={closedDays}          // ✅ חדש
           />
         </div>
       )}
@@ -1349,6 +1483,8 @@ export default function Calendar() {
         onSave={handleSave}
         selectedDate={dateString}
         initialData={editingApt}
+        businessHours={businessHours}   // ✅ חדש
+        closedDays={closedDays}         // ✅ חדש
       />
       <DeleteAppointmentModal
         isOpen={!!deletingApt}
