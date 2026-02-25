@@ -1,30 +1,31 @@
 // src/components/layout/Sidebar.jsx
-import { 
-  LayoutDashboard, TrendingUp, TrendingDown, Target, 
-  Calculator, BarChart3, Settings, X, CheckSquare, 
-  MessageCircle, Users, Calendar as CalendarIcon
+import {
+  LayoutDashboard, TrendingUp, TrendingDown, Target,
+  Calculator, BarChart3, Settings, X, CheckSquare,
+  MessageCircle, Users, Calendar as CalendarIcon, Tag,
 } from 'lucide-react';
 
 const menuItems = [
-  { icon: LayoutDashboard, label: 'מסך הבית',      path: 'dashboard'  },
-  { icon: CalendarIcon,    label: 'יומן תורים',    path: 'calendar'   },
-  { icon: Users,           label: 'לקוחות',         path: 'customers'  },
-  { icon: TrendingUp,      label: 'הכנסות',         path: 'income'     },
-  { icon: TrendingDown,    label: 'הוצאות',         path: 'expenses'   },
-  { icon: Calculator,      label: 'תקציב',          path: 'budget'     },
-  { icon: BarChart3,       label: 'דוחות',          path: 'reports'    },
-  { icon: Target,          label: 'יעדים',          path: 'goals'      },
-  { icon: CheckSquare,     label: 'משימות',         path: 'tasks'      },
-  { icon: MessageCircle,   label: 'תבניות הודעות',  path: 'templates'  },
-  { icon: Settings,        label: 'הגדרות',         path: 'settings'   },
+  { icon: LayoutDashboard, label: 'מסך הבית',        path: 'dashboard'  },
+  { icon: CalendarIcon,    label: 'יומן תורים',      path: 'calendar'   },
+  { icon: Users,           label: 'לקוחות',           path: 'customers'  },
+  { icon: Tag,             label: 'שירותים ומחירון', path: 'services'   },
+  { icon: TrendingUp,      label: 'הכנסות',           path: 'income'     },
+  { icon: TrendingDown,    label: 'הוצאות',           path: 'expenses'   },
+  { icon: Calculator,      label: 'תקציב',            path: 'budget'     },
+  { icon: BarChart3,       label: 'דוחות',            path: 'reports'    },
+  { icon: Target,          label: 'יעדים',            path: 'goals'      },
+  { icon: CheckSquare,     label: 'משימות',           path: 'tasks'      },
+  { icon: MessageCircle,   label: 'תבניות הודעות',    path: 'templates'  },
+  { icon: Settings,        label: 'הגדרות',           path: 'settings'   },
 ];
 
-export default function Sidebar({ 
-  currentPage   = 'dashboard', 
-  setCurrentPage = () => {}, 
-  isOpen        = false, 
-  setIsOpen     = () => {},
-  customerCount = 0,
+export default function Sidebar({
+  currentPage    = 'dashboard',
+  setCurrentPage = () => {},
+  isOpen         = false,
+  setIsOpen      = () => {},
+  customerCount  = 0,
 }) {
   const handleClick = (path) => {
     if (typeof setCurrentPage === 'function') setCurrentPage(path);
@@ -51,9 +52,13 @@ export default function Sidebar({
         `}
       >
         <div>
+          {/* כפתור סגירה במובייל */}
           <div className="md:hidden flex justify-between items-center mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">תפריט</h2>
-            <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
               <X className="w-5 h-5 text-gray-700 dark:text-gray-300" />
             </button>
           </div>
@@ -65,19 +70,21 @@ export default function Sidebar({
                 <button
                   key={item.path}
                   onClick={() => handleClick(item.path)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                    isActive
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors
+                    ${isActive
                       ? 'bg-[#e5007e] text-white shadow-md'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
-                  }`}
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'}`}
                 >
                   <item.icon className="w-5 h-5 shrink-0" />
                   <span className="font-medium flex-1 text-right">{item.label}</span>
 
+                  {/* Badge ספירת לקוחות */}
                   {item.path === 'customers' && customerCount > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
-                      isActive ? 'bg-white/30 text-white' : 'bg-[#e5007e]/10 text-[#e5007e]'
-                    }`}>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full
+                      min-w-[20px] text-center
+                      ${isActive
+                        ? 'bg-white/30 text-white'
+                        : 'bg-[#e5007e]/10 text-[#e5007e]'}`}>
                       {customerCount}
                     </span>
                   )}
@@ -87,10 +94,16 @@ export default function Sidebar({
           </nav>
         </div>
 
-        <div className="mt-auto p-4 bg-gradient-to-br from-[#e5007e]/10 to-[#ff4da6]/10 dark:from-[#e5007e]/20 dark:to-[#ff4da6]/20 rounded-xl border border-[#e5007e]/20 dark:border-[#e5007e]/30">
+        {/* Banner שדרוג */}
+        <div className="mt-auto p-4 bg-gradient-to-br from-[#e5007e]/10 to-[#ff4da6]/10
+          dark:from-[#e5007e]/20 dark:to-[#ff4da6]/20 rounded-xl
+          border border-[#e5007e]/20 dark:border-[#e5007e]/30">
           <p className="text-sm font-medium text-gray-900 dark:text-white mb-1">משקיעה בעצמך 💅</p>
-          <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">שדרגי ל-Pro וקבלי כלים מתקדמים</p>
-          <button className="w-full bg-[#e5007e] text-white text-sm py-2 px-4 rounded-lg hover:bg-[#b30062] transition-colors font-medium">
+          <p className="text-xs text-gray-600 dark:text-gray-300 mb-3">
+            שדרגי ל-Pro וקבלי כלים מתקדמים
+          </p>
+          <button className="w-full bg-[#e5007e] text-white text-sm py-2 px-4
+            rounded-lg hover:bg-[#b30062] transition-colors font-medium">
             שדרגי עכשיו
           </button>
         </div>

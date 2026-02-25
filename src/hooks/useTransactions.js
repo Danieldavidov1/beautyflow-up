@@ -1,74 +1,82 @@
+// src/hooks/useTransactions.js
 import { useState, useEffect } from 'react';
-import { collection, addDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import {
+  collection, addDoc, onSnapshot,
+  query, where, orderBy, serverTimestamp,
+} from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 export function useTransactions(type) {
   const [transactions, setTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
 
   useEffect(() => {
-    // ✅ משתנה שמחזיק את ה-snapshot unsubscribe
     let unsubscribeSnapshot = () => {};
 
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
-      // ✅ נקה snapshot קודם לפני שפותחים חדש
-      unsubscribeSnapshot();
+      unsubscribeSnapshot(); // נקה snapshot קודם
 
-      if (user) {
-        const q = query(
-          collection(db, 'transactions'),
-          where('userId', '==', user.uid),
-          where('type', '==', type),
-          orderBy('date', 'desc')
-        );
-
-        unsubscribeSnapshot = onSnapshot(q,
-          (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            }));
-            setTransactions(data);
-            setLoading(false);
-          },
-          (error) => {
-            console.error('useTransactions error:', error);
-            if (error.code === 'permission-denied') {
-              console.warn('Firestore permission denied for transactions');
-            }
-            setLoading(false);
-          }
-        );
-      } else {
-        // משתמש לא מחובר
+      if (!user) {
         setTransactions([]);
         setLoading(false);
+        return;
       }
+
+      setLoading(true); // ✅ reset לפני טעינה חדשה
+      setError(null);
+
+      const constraints = [
+        where('userId', '==', user.uid),
+        orderBy('date', 'desc'),
+      ];
+
+      // ✅ אם type הועבר — מסנן לפיו, אחרת מביא הכל
+      if (type) {
+        constraints.splice(1, 0, where('type', '==', type));
+      }
+
+      const q = query(collection(db, 'transactions'), ...constraints);
+
+      unsubscribeSnapshot = onSnapshot(
+        q,
+        (snapshot) => {
+          setTransactions(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+          setError(null);
+        },
+        (err) => {
+          console.error('[useTransactions] onSnapshot error:', err);
+          setError(err.message);
+          setLoading(false);
+        }
+      );
     });
 
-    // ✅ cleanup נכון — מנקה את שניהם
     return () => {
       unsubscribeAuth();
       unsubscribeSnapshot();
     };
   }, [type]);
 
-  const addTransaction = async (transaction) => {
+  const addTransaction = async (transactionData) => {
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user) throw new Error('לא מחובר');
 
     try {
-      await addDoc(collection(db, 'transactions'), {
-        ...transaction,
-        userId: user.uid,
-        type,
-        createdAt: new Date().toISOString()
+      const docRef = await addDoc(collection(db, 'transactions'), {
+        ...transactionData,
+        // type מה-hook גובר על מה שהועבר בנתונים (אם קיים)
+        type:      type ?? transactionData.type ?? 'income',
+        userId:    user.uid,
+        createdAt: serverTimestamp(), // ✅ עקבי עם שאר ה-hooks במערכת
       });
-    } catch (error) {
-      console.error('addTransaction error:', error);
-      throw error; // ✅ זורק כדי שהקומפוננט יוכל לתפוס
+      return docRef.id;
+    } catch (err) {
+      console.error('[useTransactions] addTransaction error:', err);
+      throw err;
     }
   };
 
-  return { transactions, loading, addTransaction };
+  return { transactions, loading, error, addTransaction };
 }

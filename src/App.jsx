@@ -13,6 +13,7 @@ import SmartTemplates from './components/dashboard/SmartTemplates';
 import Settings from './components/dashboard/Settings';
 import Customers from './components/dashboard/Customers';
 import Calendar from './components/dashboard/Calendar';
+import Services from './components/dashboard/Services';
 import { ToastProvider } from './context/ToastContext';
 import Login from './components/Login';
 import { auth } from './firebase';
@@ -20,9 +21,9 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { useCustomers } from './hooks/useCustomers';
 
 function AppShell({ user, isDarkMode, toggleDarkMode }) {
-  const [currentPage,   setCurrentPage]  = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [navContext,    setNavContext]    = useState(null);
+  const [currentPage,    setCurrentPage]  = useState('dashboard');
+  const [isSidebarOpen,  setIsSidebarOpen] = useState(false);
+  const [navContext,     setNavContext]    = useState(null);
 
   const { customers } = useCustomers();
 
@@ -33,30 +34,19 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
 
   const renderPage = () => {
     switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
-      case 'calendar':
-        return <Calendar />;
-      case 'customers':
-        return <Customers prefilledContact={navContext} />;
-      case 'income':
-        return <Income />;
-      case 'expenses':
-        return <Expenses />;
-      case 'budget':
-        return <Budget />;
-      case 'reports':
-        return <Reports />;
-      case 'goals':
-        return <Goals />;
-      case 'tasks':
-        return <Tasks />;
-      case 'templates':
-        return <SmartTemplates prefilledContact={navContext} />;
-      case 'settings':
-        return <Settings />;
-      default:
-        return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
+      case 'dashboard': return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
+      case 'calendar':  return <Calendar />;
+      case 'customers': return <Customers prefilledContact={navContext} />;
+      case 'services':  return <Services />;
+      case 'income':    return <Income />;
+      case 'expenses':  return <Expenses />;
+      case 'budget':    return <Budget />;
+      case 'reports':   return <Reports />;
+      case 'goals':     return <Goals />;
+      case 'tasks':     return <Tasks />;
+      case 'templates': return <SmartTemplates prefilledContact={navContext} />;
+      case 'settings':  return <Settings />;
+      default:          return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
     }
   };
 
@@ -108,11 +98,9 @@ function App() {
   const toggleDarkMode = () => setIsDarkMode((p) => !p);
 
   if (loadingAuth) return (
-    <div className="min-h-screen flex items-center justify-center
-                    bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
       <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-4 border-[#e5007e] border-t-transparent
-                        rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-500 dark:text-gray-400">טוען...</p>
       </div>
     </div>
