@@ -1,29 +1,35 @@
+// src/App.jsx
 import { useState, useEffect } from 'react';
-import { AppProvider } from './context/AppContext';
-import Header from './components/layout/Header';
-import Sidebar from './components/layout/Sidebar';
-import Dashboard from './components/dashboard/Dashboard';
-import Income from './components/dashboard/Income';
-import Expenses from './components/dashboard/Expenses';
-import Budget from './components/dashboard/Budget';
-import Reports from './components/dashboard/Reports';
-import Goals from './components/dashboard/Goals';
-import Tasks from './components/dashboard/Tasks';
-import SmartTemplates from './components/dashboard/SmartTemplates';
-import Settings from './components/dashboard/Settings';
-import Customers from './components/dashboard/Customers';
-import Calendar from './components/dashboard/Calendar';
-import Services from './components/dashboard/Services';
-import { ToastProvider } from './context/ToastContext';
-import Login from './components/Login';
-import { auth } from './firebase';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AppProvider }       from './context/AppContext';
+import { ToastProvider }     from './context/ToastContext';
+import Header                from './components/layout/Header';
+import Sidebar               from './components/layout/Sidebar';
+import Dashboard             from './components/dashboard/Dashboard';
+import Income                from './components/dashboard/Income';
+import Expenses              from './components/dashboard/Expenses';
+import Budget                from './components/dashboard/Budget';
+import Reports               from './components/dashboard/Reports';
+import Goals                 from './components/dashboard/Goals';
+import Tasks                 from './components/dashboard/Tasks';
+import SmartTemplates        from './components/dashboard/SmartTemplates';
+import Settings              from './components/dashboard/Settings';
+import Customers             from './components/dashboard/Customers';
+import Calendar              from './components/dashboard/Calendar';
+import Services              from './components/dashboard/Services';
+import BookingRequests       from './components/dashboard/BookingRequests'; // ✅ חדש
+import BookingPage           from './components/BookingPage';
+import Login                 from './components/Login';
+import { auth }              from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { useCustomers } from './hooks/useCustomers';
+import { useCustomers }      from './hooks/useCustomers';
+
+// ── AppShell ──────────────────────────────────────────────────────────────────
 
 function AppShell({ user, isDarkMode, toggleDarkMode }) {
-  const [currentPage,    setCurrentPage]  = useState('dashboard');
-  const [isSidebarOpen,  setIsSidebarOpen] = useState(false);
-  const [navContext,     setNavContext]    = useState(null);
+  const [currentPage,   setCurrentPage]  = useState('requests');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [navContext,    setNavContext]    = useState(null);
 
   const { customers } = useCustomers();
 
@@ -46,6 +52,7 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
       case 'tasks':     return <Tasks />;
       case 'templates': return <SmartTemplates prefilledContact={navContext} />;
       case 'settings':  return <Settings />;
+      case 'requests':  return <BookingRequests />; // ✅ חדש
       default:          return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
     }
   };
@@ -71,6 +78,8 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
     </div>
   );
 }
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
   const [user,        setUser]        = useState(null);
@@ -98,28 +107,40 @@ function App() {
   const toggleDarkMode = () => setIsDarkMode((p) => !p);
 
   if (loadingAuth) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen flex items-center justify-center
+                    bg-gray-50 dark:bg-gray-900">
       <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[#e5007e]
+                        border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-500 dark:text-gray-400">טוען...</p>
       </div>
     </div>
   );
 
   return (
-    <ToastProvider>
-      {!user ? (
-        <Login />
-      ) : (
-        <AppProvider>
-          <AppShell
-            user={user}
-            isDarkMode={isDarkMode}
-            toggleDarkMode={toggleDarkMode}
-          />
-        </AppProvider>
-      )}
-    </ToastProvider>
+    <BrowserRouter>
+      <ToastProvider>
+        <Routes>
+          {/* ✅ דף ציבורי — ללא auth */}
+          <Route path="/book/:providerId" element={<BookingPage />} />
+
+          {/* ✅ כל שאר הנתיבים — דורשים התחברות */}
+          <Route path="/*" element={
+            !user ? (
+              <Login />
+            ) : (
+              <AppProvider>
+                <AppShell
+                  user={user}
+                  isDarkMode={isDarkMode}
+                  toggleDarkMode={toggleDarkMode}
+                />
+              </AppProvider>
+            )
+          } />
+        </Routes>
+      </ToastProvider>
+    </BrowserRouter>
   );
 }
 
