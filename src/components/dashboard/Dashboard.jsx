@@ -17,9 +17,11 @@ import { useCustomers }            from '../../hooks/useCustomers';
 import Reports from './Reports';
 import gsap from 'gsap';
 
+
 const MONTHS_HE    = ['ינו','פבר','מרץ','אפר','מאי','יונ','יול','אוג','ספט','אוק','נוב','דצמ'];
 const DAYS_HE      = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 const FALLBACK_COLORS = ['#e5007e','#ef4444','#f97316','#8b5cf6','#3b82f6','#10b981'];
+
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function toDateStr(d) {
@@ -29,12 +31,14 @@ function toDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
+
 // ── STATUS config ──────────────────────────────────────────────────────────
 const STATUS_OPTIONS = [
   { value: 'todo',        label: 'לביצוע',  dot: 'bg-gray-400'   },
   { value: 'in_progress', label: 'בתהליך',  dot: 'bg-yellow-400' },
   { value: 'done',        label: 'הושלם ✓', dot: 'bg-green-500'  },
 ];
+
 
 // ── Tooltips ───────────────────────────────────────────────────────────────
 const CustomBarTooltip = ({ active, payload, label }) => {
@@ -52,6 +56,7 @@ const CustomBarTooltip = ({ active, payload, label }) => {
   );
 };
 
+
 const CustomPieTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -64,10 +69,12 @@ const CustomPieTooltip = ({ active, payload }) => {
   );
 };
 
+
 // ── StatusButton ───────────────────────────────────────────────────────────
 function StatusButton({ task, updateTaskStatus }) {
   const [open,     setOpen]     = useState(false);
   const [updating, setUpdating] = useState(false);
+
 
   const handleSelect = async (newStatus) => {
     if (newStatus === task.status) { setOpen(false); return; }
@@ -78,7 +85,9 @@ function StatusButton({ task, updateTaskStatus }) {
     finally   { setUpdating(false); }
   };
 
+
   const current = STATUS_OPTIONS.find((s) => s.value === task.status) ?? STATUS_OPTIONS[0];
+
 
   return (
     <div className="relative shrink-0">
@@ -96,6 +105,7 @@ function StatusButton({ task, updateTaskStatus }) {
               <ChevronDown className="w-3 h-3" /></>
         }
       </button>
+
 
       {open && (
         <>
@@ -122,15 +132,18 @@ function StatusButton({ task, updateTaskStatus }) {
   );
 }
 
+
 // ── TasksWidget ────────────────────────────────────────────────────────────
 function TasksWidget({ onNavigateToTasks }) {
   const { tasks, loading, updateTaskStatus } = useTasks();
+
 
   const urgentTasks = tasks.filter((t) => t.status !== 'done' && t.priority === 'high').slice(0, 3);
   const openCount   = tasks.filter((t) => t.status !== 'done').length;
   const doneCount   = tasks.filter((t) => t.status === 'done').length;
   const totalCount  = tasks.length;
   const progress    = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200
@@ -150,6 +163,7 @@ function TasksWidget({ onNavigateToTasks }) {
           כל המשימות <ArrowLeft className="w-3.5 h-3.5" />
         </button>
       </div>
+
 
       {loading ? (
         <div className="flex justify-center py-4 flex-1 items-center">
@@ -180,6 +194,7 @@ function TasksWidget({ onNavigateToTasks }) {
                 }} />
             </div>
           </div>
+
 
           {urgentTasks.length > 0 ? (
             <div className="space-y-2 mt-auto">
@@ -215,12 +230,14 @@ function TasksWidget({ onNavigateToTasks }) {
   );
 }
 
+
 // ── UpcomingAppointmentsWidget ─────────────────────────────────────────────
 function UpcomingAppointmentsWidget({ onNavigateToCalendar }) {
   const { appointments, loading } = useAppointments();
 
+
   const today = toDateStr(new Date());
-  
+ 
   const upcoming = useMemo(() => {
     return appointments
       .filter((a) => a.status === 'scheduled' && a.date >= today)
@@ -231,6 +248,7 @@ function UpcomingAppointmentsWidget({ onNavigateToCalendar }) {
       .slice(0, 3);
   }, [appointments, today]);
 
+
   const formatDate = (dateStr) => {
     const now      = new Date();
     const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
@@ -240,6 +258,7 @@ function UpcomingAppointmentsWidget({ onNavigateToCalendar }) {
     const dt = new Date(y, m - 1, d);
     return `יום ${DAYS_HE[dt.getDay()]} ${d}.${m}`;
   };
+
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200
@@ -259,6 +278,7 @@ function UpcomingAppointmentsWidget({ onNavigateToCalendar }) {
           כל התורים <ArrowLeft className="w-3.5 h-3.5" />
         </button>
       </div>
+
 
       {loading ? (
         <div className="flex justify-center py-4 flex-1 items-center">
@@ -308,10 +328,11 @@ function UpcomingAppointmentsWidget({ onNavigateToCalendar }) {
   );
 }
 
+
 // ── CustomersWidget ────────────────────────────────────────────────────────
 function CustomersWidget({ onNavigateToCustomers }) {
   const { customers, loading } = useCustomers();
-  
+ 
   const total = customers.length;
   const now = new Date();
   const newThisMonth = customers.filter((c) => {
@@ -319,6 +340,7 @@ function CustomersWidget({ onNavigateToCustomers }) {
     const d = c.createdAt.toDate ? c.createdAt.toDate() : new Date(c.createdAt);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
+
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200
@@ -335,6 +357,7 @@ function CustomersWidget({ onNavigateToCustomers }) {
         </button>
       </div>
 
+
       {loading ? (
         <div className="flex justify-center py-4 flex-1 items-center">
           <Loader2 className="w-5 h-5 animate-spin text-[#e5007e]" />
@@ -346,6 +369,7 @@ function CustomersWidget({ onNavigateToCustomers }) {
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">לקוחות בסך הכל</p>
           </div>
 
+
           {newThisMonth > 0 && (
             <div className="flex items-center gap-2 p-2.5 rounded-lg
                             bg-pink-50 dark:bg-[#e5007e]/10
@@ -356,6 +380,7 @@ function CustomersWidget({ onNavigateToCustomers }) {
               </span>
             </div>
           )}
+
 
           {total === 0 && (
             <div className="text-center py-2">
@@ -372,6 +397,7 @@ function CustomersWidget({ onNavigateToCustomers }) {
   );
 }
 
+
 // ── QuickActions ───────────────────────────────────────────────────────────
 function QuickActions({ setCurrentPage }) {
   const actions = [
@@ -380,6 +406,7 @@ function QuickActions({ setCurrentPage }) {
     { icon: TrendingUp, label: 'הכנסה חדשה', action: () => setCurrentPage?.('income'),    cls: 'from-green-500 to-emerald-400' },
     { icon: Zap,      label: 'משימה חדשה',   action: () => setCurrentPage?.('tasks'),     cls: 'from-yellow-500 to-amber-400'  },
   ];
+
 
   return (
     <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl border border-gray-200
@@ -407,6 +434,7 @@ function QuickActions({ setCurrentPage }) {
   );
 }
 
+
 // ── Dashboard ──────────────────────────────────────────────────────────────
 export default function Dashboard({ currentPage, setCurrentPage }) {
   const { transactions: incomes,  loading: loadingIncomes  } = useTransactions('income');
@@ -414,30 +442,37 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
   const { categories: expenseCategories, loading: catsLoading } = useCategoriesFirestore('expense');
   const containerRef = useRef(null);
 
+
   const categoryColorMap = useMemo(() =>
     Object.fromEntries(expenseCategories.map((c) => [c.name, c.color])),
   [expenseCategories]);
+
 
   const getCategoryColor = useCallback((catName, index) =>
     categoryColorMap[catName] || FALLBACK_COLORS[index % FALLBACK_COLORS.length],
   [categoryColorMap]);
 
+
   const isLoading = loadingIncomes || loadingExpenses || catsLoading;
+
 
   // ✅ תיקון: useEffect רגיל במקום useGSAP
   useEffect(() => {
     if (isLoading || !containerRef.current) return;
-    gsap.fromTo('.gsap-card', 
+    gsap.fromTo('.gsap-card',
       { y: 40, opacity: 0 },
       { y: 0, opacity: 1, duration: 0.6, stagger: 0.08, ease: 'power3.out', clearProps: 'all' }
     );
   }, [isLoading]);
 
+
   if (currentPage === 'reports') return <Reports />;
+
 
   const now          = new Date();
   const currentMonth = now.getMonth();
   const currentYear  = now.getFullYear();
+
 
   const thisMonthIncomes  = incomes.filter((i) => {
     const d = new Date(i.date);
@@ -448,10 +483,12 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
+
   const totalIncome   = thisMonthIncomes.reduce((s, i)  => s + i.amount, 0);
   const totalExpenses = thisMonthExpenses.reduce((s, i) => s + i.amount, 0);
   const balance       = totalIncome - totalExpenses;
   const isProfit      = balance >= 0;
+
 
   const barData = Array.from({ length: 6 }, (_, i) => {
     const date = new Date(currentYear, currentMonth - (5 - i), 1);
@@ -466,6 +503,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
     return { name: MONTHS_HE[m], הכנסות: inc, הוצאות: exp };
   });
 
+
   const pieData = (() => {
     const map = {};
     thisMonthExpenses.forEach((e) => { map[e.category] = (map[e.category] || 0) + e.amount; });
@@ -478,13 +516,16 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
       .sort((a, b) => b.value - a.value);
   })();
 
+
   const recentTransactions = [
     ...incomes.map((i)  => ({ ...i, type: 'income'  })),
     ...expenses.map((e) => ({ ...e, type: 'expense' })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
 
+
   const prevMonth     = currentMonth === 0 ? 11 : currentMonth - 1;
   const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
 
   const prevMonthIncome  = incomes.filter((i) => {
     const d = new Date(i.date);
@@ -495,12 +536,15 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
     return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
   }).reduce((s, i) => s + i.amount, 0);
 
+
   const incomeChange  = prevMonthIncome  > 0
     ? ((totalIncome   - prevMonthIncome)  / prevMonthIncome  * 100).toFixed(1) : null;
   const expenseChange = prevMonthExpense > 0
     ? ((totalExpenses - prevMonthExpense) / prevMonthExpense * 100).toFixed(1) : null;
 
+
   const hasAnyData = incomes.length > 0 || expenses.length > 0;
+
 
   return (
     <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef} dir="rtl">
@@ -524,10 +568,12 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
             </p>
           </div>
 
+
           {/* ── Quick Actions ────────────────────────────────────────────── */}
           <div className="mb-6">
             <QuickActions setCurrentPage={setCurrentPage} />
           </div>
+
 
           {/* ── Balance hero ─────────────────────────────────────────────── */}
           <div className={`gsap-card rounded-2xl p-6 md:p-8 mb-6 shadow-xl text-white ${
@@ -558,9 +604,10 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
             </p>
           </div>
 
+
           {/* ── Stats grid — 4 columns ───────────────────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            
+           
             {/* הכנסות */}
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5
                             shadow-sm border border-gray-200 dark:border-gray-700
@@ -588,6 +635,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
               </p>
             </div>
 
+
             {/* הוצאות */}
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5
                             shadow-sm border border-gray-200 dark:border-gray-700
@@ -614,6 +662,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
                 {thisMonthExpenses.length} הוצאות
               </p>
             </div>
+
 
             {/* יתרה */}
             <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl p-4 md:p-5
@@ -650,11 +699,13 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">רווח נקי החודש</p>
             </div>
 
+
             {/* Tasks */}
             <div className="gsap-card h-full">
               <TasksWidget onNavigateToTasks={() => setCurrentPage?.('tasks')} />
             </div>
           </div>
+
 
           {/* ── Second row: Appointments + Customers ────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -669,6 +720,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
               />
             </div>
           </div>
+
 
           {/* ── Charts ──────────────────────────────────────────────────── */}
           {hasAnyData ? (
@@ -704,8 +756,9 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
                 </ResponsiveContainer>
               </div>
 
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
-                
+               
                 {/* Pie */}
                 <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm
                                 border border-gray-200 dark:border-gray-700
@@ -760,6 +813,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
                     </div>
                   )}
                 </div>
+
 
                 {/* Recent transactions */}
                 <div className="gsap-card bg-white dark:bg-gray-800 rounded-xl shadow-sm
@@ -830,6 +884,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
             </div>
           )}
 
+
           {/* ── Financial tip ────────────────────────────────────────────── */}
           <div className="gsap-card bg-gradient-to-r from-[#e5007e] to-[#ff4da6]
                           rounded-xl p-4 md:p-6 text-white shadow-md">
@@ -846,3 +901,6 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
     </div>
   );
 }
+
+
+

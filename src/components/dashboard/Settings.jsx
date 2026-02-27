@@ -1,7 +1,7 @@
 // src/components/dashboard/Settings.jsx
 import {
   Settings as SettingsIcon, Trash2, Download, Upload,
-  AlertTriangle, LogOut, Clock, Globe, ToggleLeft, ToggleRight,
+  AlertTriangle, LogOut, Clock, Globe, Copy, Check, ExternalLink,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useToast } from '../../context/ToastContext';
@@ -15,7 +15,6 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import BusinessHoursSettings from './BusinessHoursSettings';
 
-// ── קולקציות לגיבוי/מחיקה ────────────────────────────────────────────────
 const USER_COLLECTIONS = [
   'incomes', 'expenses', 'goals', 'budgets',
   'categories', 'categoryBudgets',
@@ -38,7 +37,6 @@ async function batchDeleteAll(userId) {
   }
 }
 
-// ── Tab Component ──────────────────────────────────────────────────────────
 function Tab({ active, onClick, icon, label }) {
   return (
     <button
@@ -55,7 +53,6 @@ function Tab({ active, onClick, icon, label }) {
   );
 }
 
-// ── Toggle Component ───────────────────────────────────────────────────────
 function ToggleSwitch({ enabled, onToggle, loading }) {
   return (
     <button
@@ -74,6 +71,108 @@ function ToggleSwitch({ enabled, onToggle, loading }) {
   );
 }
 
+// ── ✅ BookingLinkCard ─────────────────────────────────────────────────────
+function BookingLinkCard() {
+  const [copied, setCopied] = useState(false);
+  const uid = auth.currentUser?.uid;
+  const bookingUrl = uid ? `${window.location.origin}/book/${uid}` : null;
+
+  const handleCopy = async () => {
+    if (!bookingUrl) return;
+    try {
+      await navigator.clipboard.writeText(bookingUrl);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = bookingUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleOpen = () => {
+    if (bookingUrl) window.open(bookingUrl, '_blank');
+  };
+
+  if (!uid) return null;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5
+                    shadow-sm border border-gray-100 dark:border-gray-700">
+
+      {/* כותרת */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-pink-50 dark:bg-pink-900/30 rounded-xl shrink-0">
+            {/* SVG אייקון לינק */}
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-[#e5007e]"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </div>
+          <div>
+            <p className="font-bold text-gray-900 dark:text-white text-sm">
+              הלינק האישי שלי
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              שתפי עם לקוחות לקביעת תורים אונליין
+            </p>
+          </div>
+        </div>
+        {/* אינדיקטור פעיל */}
+        <div className="flex items-center gap-1.5 bg-green-100 dark:bg-green-900/30
+                        px-2.5 py-1 rounded-full shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-[10px] font-semibold text-green-700 dark:text-green-400">
+            פעיל
+          </span>
+        </div>
+      </div>
+
+      {/* תצוגת URL */}
+      <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50
+                      border border-gray-200 dark:border-gray-600
+                      rounded-xl px-3 py-2.5 mb-3">
+        <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1"
+              dir="ltr">
+          {bookingUrl}
+        </span>
+      </div>
+
+      {/* כפתורים */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleCopy}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl
+                      text-sm font-semibold transition-all duration-200 ${
+            copied
+              ? 'bg-green-500 text-white shadow-md shadow-green-500/20'
+              : 'bg-[#e5007e] hover:bg-[#b30062] text-white shadow-md shadow-[#e5007e]/20'
+          }`}>
+          {copied
+            ? <><Check className="w-4 h-4" /> הועתק!</>
+            : <><Copy className="w-4 h-4" /> העתק קישור</>
+          }
+        </button>
+        <button
+          onClick={handleOpen}
+          title="פתח דף בוקינג"
+          className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600
+                     bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300
+                     hover:bg-gray-50 dark:hover:bg-gray-700
+                     transition-colors text-sm">
+          <ExternalLink className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 export default function Settings() {
   const { showToast } = useToast();
@@ -84,18 +183,15 @@ export default function Settings() {
   const [isImporting,  setIsImporting]  = useState(false);
   const [isClearing,   setIsClearing]   = useState(false);
 
-  // ── הגדרות Online Booking ──────────────────────────────────────
   const [autoConfirm,     setAutoConfirm]     = useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingToggle,    setSavingToggle]    = useState(false);
 
   const containerRef = useRef(null);
 
-  // ── טעינת הגדרות מ-Firestore ────────────────────────────────────
   useEffect(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
-
     const load = async () => {
       try {
         const snap = await getDoc(doc(db, 'userSettings', uid));
@@ -111,18 +207,16 @@ export default function Settings() {
     load();
   }, []);
 
-  // ── שמירת autoConfirm ────────────────────────────────────────────
   const handleToggleAutoConfirm = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
-
     const newVal = !autoConfirm;
     setSavingToggle(true);
     try {
       await setDoc(
         doc(db, 'userSettings', uid),
         { autoConfirm: newVal },
-        { merge: true }  // ✅ לא דורס שעות פעילות ושאר הגדרות
+        { merge: true }
       );
       setAutoConfirm(newVal);
       showToast(
@@ -146,11 +240,9 @@ export default function Settings() {
     });
   }, { scope: containerRef, dependencies: [] });
 
-  // ── ייצוא ─────────────────────────────────────────────────────────────
   const handleExportAll = async () => {
     const userId = auth.currentUser?.uid;
     if (!userId) { showToast('לא מחובר', 'error'); return; }
-
     setIsExporting(true);
     try {
       const exportData = { exportDate: new Date().toISOString(), userId };
@@ -175,13 +267,11 @@ export default function Settings() {
     }
   };
 
-  // ── ייבוא ─────────────────────────────────────────────────────────────
   const handleImport = (event) => {
     const file = event.target.files[0];
     if (!file) return;
     const userId = auth.currentUser?.uid;
     if (!userId) { showToast('לא מחובר', 'error'); return; }
-
     const reader = new FileReader();
     reader.onload = async (e) => {
       setIsImporting(true);
@@ -217,11 +307,9 @@ export default function Settings() {
     event.target.value = '';
   };
 
-  // ── מחיקה ─────────────────────────────────────────────────────────────
   const handleClearAll = async () => {
     const userId = auth.currentUser?.uid;
     if (!userId) { showToast('לא מחובר', 'error'); return; }
-
     setIsClearing(true);
     try {
       await batchDeleteAll(userId);
@@ -331,6 +419,9 @@ export default function Settings() {
       {activeTab === 'booking' && (
         <div className="space-y-4">
 
+          {/* ✅ הלינק האישי */}
+          <BookingLinkCard />
+
           {/* אישור אוטומטי */}
           <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
                           shadow-sm border border-gray-100 dark:border-gray-700">
@@ -356,7 +447,7 @@ export default function Settings() {
             ) : (
               <div className="space-y-4">
 
-                {/* שורת מתג אישור אוטומטי */}
+                {/* מתג אישור אוטומטי */}
                 <div className="flex items-center justify-between p-4
                                 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
                   <div className="flex-1 ml-4">
