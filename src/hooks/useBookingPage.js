@@ -1,8 +1,4 @@
 // src/hooks/useBookingPage.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook לניהול כל הלוגיקה של דף קביעת תור הציבורי
-// משמש: BookingPage.jsx
-// ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '../firebase';
 import {
@@ -11,7 +7,6 @@ import {
 } from 'firebase/firestore';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-// ✅ מיוצאים — BookingPage.jsx יכול לייבא מכאן ולא להגדיר מחדש (מונע כפילות)
 
 export function toMin(timeStr) {
   if (!timeStr) return 0;
@@ -23,8 +18,6 @@ export function toTimeStr(mins) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
-// ✅ תיקון timezone: new Date(str) מפרש כ-UTC ומחזיר יום שגוי.
-// הוספת T12:00:00 מבטיחה שהתאריך ייפרש תמיד כשעה מקומית
 export function parseDateStr(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d, 12, 0, 0);
@@ -37,8 +30,7 @@ export function toDateStr(dateObj) {
   return `${y}-${m}-${d}`;
 }
 
-// ── וולידציה לפני שליחה לענן ─────────────────────────────────────────────────
-// ✅ שכבת הגנה נוספת בצד ה-client לפני שה-Firestore Rules יבדקו
+// ── וולידציה לפני שליחה ───────────────────────────────────────────────────────
 function validateBookingPayload(data) {
   if (!data.serviceId  || typeof data.serviceId  !== 'string') throw new Error('שירות לא תקין');
   if (!data.date       || data.date.length !== 10)              throw new Error('תאריך לא תקין');
@@ -52,20 +44,15 @@ function validateBookingPayload(data) {
 
 export function useBookingPage(providerId) {
 
-  // ── נתוני עסק ──────────────────────────────────────────────────
   const [providerSettings, setProviderSettings] = useState(null);
   const [services,         setServices]         = useState([]);
   const [loadingInitial,   setLoadingInitial]   = useState(true);
   const [errorInitial,     setErrorInitial]     = useState(null);
+  const [bookedSlots,      setBookedSlots]      = useState([]);
+  const [loadingSlots,     setLoadingSlots]     = useState(false);
+  const [submitting,       setSubmitting]       = useState(false);
 
-  // ── slots ───────────────────────────────────────────────────────
-  const [bookedSlots,  setBookedSlots]  = useState([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-
-  // ── שליחה ──────────────────────────────────────────────────────
-  const [submitting, setSubmitting] = useState(false);
-
-  // ── 1. טעינה ראשונית: הגדרות עסק + מחירון ─────────────────────
+  // ── 1. טעינה ראשונית ────────────────────────────────────────────
   useEffect(() => {
     if (!providerId) {
       setErrorInitial('קישור לא תקין — חסר מזהה עסק');
@@ -73,12 +60,10 @@ export function useBookingPage(providerId) {
       return;
     }
 
-    let cancelled = false; // ✅ cleanup flag — מונע state update על קומפוננט שנוסר
+    let cancelled = false;
 
     async function fetchInitialData() {
       try {
-        // א. הגדרות עסק: שם, שעות פעילות, ימי חופשה
-        // ✅ דורש Firebase Rule: match /userSettings/{userId} { allow get: if true; }
         const settingsSnap = await getDoc(doc(db, 'userSettings', providerId));
         if (cancelled) return;
 
@@ -88,8 +73,6 @@ export function useBookingPage(providerId) {
             : { businessName: 'קביעת תור', businessHours: {} }
         );
 
-        // ב. מחירון — שירותים פעילים בלבד
-        // ✅ דורש Firebase Rule: match /services/{serviceId} { allow read: if true; }
         const srvSnap = await getDocs(query(
           collection(db, 'services'),
           where('userId',   '==', providerId),
@@ -108,76 +91,61 @@ export function useBookingPage(providerId) {
     }
 
     fetchInitialData();
-    return () => { cancelled = true; }; // ✅ cleanup על unmount
+    return () => { cancelled = true; };
   }, [providerId]);
 
-  // ── 2. שליפת תורים תפוסים לתאריך ספציפי ──────────────────────
-  // ✅ מחזיר את המערך ישירות (ולא רק מעדכן state) — מונע race condition
-  // בו calculateAvailableSlots רץ לפני ש-setBookedSlots סיים
+  // ── 2. שליפת תורים תפוסים ───────────────────────────────────────
   const fetchBookedSlots = useCallback(async (selectedDate) => {
     if (!providerId || !selectedDate) return [];
 
     setLoadingSlots(true);
     try {
-      // ✅ דורש Firebase Rule: appointments allow read עם userId תואם
       const aptSnap = await getDocs(query(
         collection(db, 'appointments'),
         where('userId', '==', providerId),
         where('date',   '==', selectedDate),
         where('status', 'in', ['scheduled', 'completed']),
-        // ✅ תורים מבוטלים לא חוסמים שעות
       ));
 
       const slots = aptSnap.docs.map((d) => d.data());
-      setBookedSlots(slots); // לסנכרון ה-UI
-      return slots;          // ✅ מחזיר ישירות לקורא לחישוב מיידי
+      setBookedSlots(slots);
+      return slots;
     } catch (err) {
       console.error('[useBookingPage] fetchBookedSlots:', err);
       setBookedSlots([]);
-      return []; // ✅ fallback בטוח — לא נחסום slots בגלל שגיאת רשת
+      return [];
     } finally {
       setLoadingSlots(false);
     }
   }, [providerId]);
 
-  // ── 3. חישוב שעות פנויות ──────────────────────────────────────
-  // ✅ תוקן: מקבל את bookedSlots כפרמטר (ולא קורא מ-state)
-  // מונע race condition שבו החישוב רץ על slots ישנים
+  // ── 3. חישוב שעות פנויות ────────────────────────────────────────
   const calculateAvailableSlots = useCallback((selectedDate, serviceDuration, currentBookedSlots) => {
     if (!providerSettings || !selectedDate || !serviceDuration) return [];
 
-    // ✅ תיקון timezone: parseDateStr עם T12:00 — getDay() יחזיר יום נכון
     const dayIndex = parseDateStr(selectedDate).getDay();
     const dayCfg   = providerSettings.businessHours?.[dayIndex];
 
-    // יום סגור שבועי
     if (!dayCfg || !dayCfg.isActive) return [];
-
-    // ✅ יום חופשה ספציפי (closedDays מ-BusinessHoursSettings)
     if (providerSettings.closedDays?.includes(selectedDate)) return [];
 
     const openMin    = toMin(dayCfg.start);
     const closeMin   = toMin(dayCfg.end);
     const duration   = Number(serviceDuration);
-    const slotStep   = 30; // ✅ גרנולריות 30 דקות — ניתן לשינוי עתידי ל-15
+    const slotStep   = 30;
     const nowMs      = Date.now();
     const slotsToUse = currentBookedSlots ?? bookedSlots;
-    // ✅ currentBookedSlots מהפרמטר קודם לstate — מונע staleness
 
     const slots = [];
 
     for (let cur = openMin; cur + duration <= closeMin; cur += slotStep) {
       const slotEnd = cur + duration;
-
-      // ✅ מניעת תורים בעבר — השוואה מדויקת כולל תאריך ושעה
-      const slotMs = new Date(`${selectedDate}T${toTimeStr(cur)}:00`).getTime();
+      const slotMs  = new Date(`${selectedDate}T${toTimeStr(cur)}:00`).getTime();
       if (slotMs < nowMs) continue;
 
-      // ✅ בדיקת חפיפה מלאה (overlap) מול כל תור קיים
       const hasOverlap = slotsToUse.some((apt) => {
         const aptStart = toMin(apt.startTime);
         const aptEnd   = toMin(apt.endTime);
-        // חפיפה: slot מתחיל לפני שהתור נגמר AND slot נגמר אחרי שהתור מתחיל
         return cur < aptEnd && slotEnd > aptStart;
       });
 
@@ -187,51 +155,43 @@ export function useBookingPage(providerId) {
     return slots;
   }, [providerSettings, bookedSlots]);
 
-  // ── 4. שליחת בקשת תור ────────────────────────────────────────
-  // ✅ מחזיר את ה-docId לאישור אפשרי בעתיד
+  // ── 4. שליחת בקשה — תמיד ל-bookingRequests ─────────────────────
+  // ✅ תוקן: גולש אנונימי לא יכול לכתוב ל-appointments/customers
+  // האישור האוטומטי מטופל בצד הניהול (useAutoConfirmWorker)
   const submitBookingRequest = useCallback(async (bookingData) => {
     if (!providerId) throw new Error('חסר מזהה עסק');
-    if (submitting)  throw new Error('כבר בתהליך שליחה'); // ✅ מגן מכפילות
+    if (submitting)  throw new Error('כבר בתהליך שליחה');
 
-    // ✅ וולידציה client-side לפני קריאה ל-Firestore
     validateBookingPayload(bookingData);
 
     setSubmitting(true);
     try {
       const docRef = await addDoc(collection(db, 'bookingRequests'), {
         ...bookingData,
-        // ✅ שדות שרק ה-hook קובע — לא הקומפוננט
         ownerUid:  providerId,
-        status:    'pending',          // ממתין לאישור הקוסמטיקאית
-        createdAt: serverTimestamp(),  // ✅ תמיד serverTimestamp, לא client time
-        // ✅ endTime: BookingPage.jsx אחראי לחשב ולהעביר בתוך bookingData
+        status:    'pending',
+        createdAt: serverTimestamp(),
       });
 
-      return docRef.id; // ✅ מוחזר לקומפוננט לאישור / לוג
+      return { docId: docRef.id, autoConfirmed: false };
     } catch (err) {
       console.error('[useBookingPage] submitBookingRequest:', err);
-      throw err; // ✅던장 לקומפוננט לטפל ב-UI של שגיאה
+      throw err;
     } finally {
       setSubmitting(false);
     }
   }, [providerId, submitting]);
 
-  // ── Return API ────────────────────────────────────────────────
   return {
-    // נתוני עסק
     providerSettings,
     services,
     loadingInitial,
     errorInitial,
-
-    // slots
     bookedSlots,
     loadingSlots,
-    fetchBookedSlots,          // async (date) => bookedSlots[]
-    calculateAvailableSlots,   // (date, duration, bookedSlots?) => timeStr[]
-
-    // שליחה
+    fetchBookedSlots,
+    calculateAvailableSlots,
     submitting,
-    submitBookingRequest,      // async (bookingData) => docId
+    submitBookingRequest,
   };
 }

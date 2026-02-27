@@ -17,21 +17,41 @@ import Settings              from './components/dashboard/Settings';
 import Customers             from './components/dashboard/Customers';
 import Calendar              from './components/dashboard/Calendar';
 import Services              from './components/dashboard/Services';
-import BookingRequests       from './components/dashboard/BookingRequests'; // ✅ חדש
+import BookingRequests       from './components/dashboard/BookingRequests';
 import BookingPage           from './components/BookingPage';
 import Login                 from './components/Login';
-import { auth }              from './firebase';
+import { auth, db }          from './firebase'; 
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, onSnapshot }   from 'firebase/firestore'; 
 import { useCustomers }      from './hooks/useCustomers';
+import { useAutoConfirmWorker } from './hooks/useAutoConfirmWorker'; 
 
 // ── AppShell ──────────────────────────────────────────────────────────────────
 
 function AppShell({ user, isDarkMode, toggleDarkMode }) {
-  const [currentPage,   setCurrentPage]  = useState('requests');
+  // ✅ תוקן! ברירת המחדל למסך הבית (פרודקשן)
+  const [currentPage,   setCurrentPage]  = useState('dashboard'); 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [navContext,    setNavContext]    = useState(null);
+  
+  // ✅ משתנה שיחזיק את מצב האישור האוטומטי
+  const [autoConfirm, setAutoConfirm] = useState(false);
 
   const { customers } = useCustomers();
+
+  // ✅ האזנה בזמן אמת להגדרות של הקוסמטיקאית (כדי לדעת אם המתג דלוק או כבוי)
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, 'userSettings', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setAutoConfirm(docSnap.data().autoConfirm || false);
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
+  // ✅ הפעלת פועל הרקע! אם המתג דלוק, הוא יעבד בקשות שקופצות
+  useAutoConfirmWorker(autoConfirm);
 
   const navigateTo = (page, context = null) => {
     setNavContext(context);
@@ -52,7 +72,7 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
       case 'tasks':     return <Tasks />;
       case 'templates': return <SmartTemplates prefilledContact={navContext} />;
       case 'settings':  return <Settings />;
-      case 'requests':  return <BookingRequests />; // ✅ חדש
+      case 'requests':  return <BookingRequests />;
       default:          return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
     }
   };

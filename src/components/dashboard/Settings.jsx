@@ -1,13 +1,13 @@
 // src/components/dashboard/Settings.jsx
 import {
   Settings as SettingsIcon, Trash2, Download, Upload,
-  AlertTriangle, LogOut, Clock,
+  AlertTriangle, LogOut, Clock, Globe, ToggleLeft, ToggleRight,
 } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useToast } from '../../context/ToastContext';
 import {
   collection, getDocs, addDoc, deleteDoc,
-  doc, query, where, writeBatch
+  doc, query, where, writeBatch, getDoc, setDoc,
 } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
 import { signOut } from 'firebase/auth';
@@ -19,7 +19,7 @@ import BusinessHoursSettings from './BusinessHoursSettings';
 const USER_COLLECTIONS = [
   'incomes', 'expenses', 'goals', 'budgets',
   'categories', 'categoryBudgets',
-  'transactions', 'appointments', 'services',    // ✅ נוספו קולקציות חדשות
+  'transactions', 'appointments', 'services',
 ];
 
 const BATCH_SIZE = 499;
@@ -55,17 +55,89 @@ function Tab({ active, onClick, icon, label }) {
   );
 }
 
+// ── Toggle Component ───────────────────────────────────────────────────────
+function ToggleSwitch({ enabled, onToggle, loading }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={loading}
+      className={`relative inline-flex h-7 w-12 items-center rounded-full
+                  transition-colors duration-200 focus:outline-none
+                  disabled:opacity-50
+                  ${enabled ? 'bg-[#e5007e]' : 'bg-gray-300 dark:bg-gray-600'}`}>
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white
+                    shadow-md transition-transform duration-200
+                    ${enabled ? 'translate-x-1' : 'translate-x-6'}`}
+      />
+    </button>
+  );
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 export default function Settings() {
   const { showToast } = useToast();
 
-  const [activeTab,   setActiveTab]   = useState('hours');  // ✅ ברירת מחדל: שעות
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [isClearing,  setIsClearing]  = useState(false);
+  const [activeTab,    setActiveTab]    = useState('hours');
+  const [showConfirm,  setShowConfirm]  = useState(false);
+  const [isExporting,  setIsExporting]  = useState(false);
+  const [isImporting,  setIsImporting]  = useState(false);
+  const [isClearing,   setIsClearing]   = useState(false);
+
+  // ── הגדרות Online Booking ──────────────────────────────────────
+  const [autoConfirm,     setAutoConfirm]     = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingToggle,    setSavingToggle]    = useState(false);
 
   const containerRef = useRef(null);
+
+  // ── טעינת הגדרות מ-Firestore ────────────────────────────────────
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const load = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'userSettings', uid));
+        if (snap.exists()) {
+          setAutoConfirm(snap.data().autoConfirm ?? false);
+        }
+      } catch (err) {
+        console.error('[Settings] load:', err);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+    load();
+  }, []);
+
+  // ── שמירת autoConfirm ────────────────────────────────────────────
+  const handleToggleAutoConfirm = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const newVal = !autoConfirm;
+    setSavingToggle(true);
+    try {
+      await setDoc(
+        doc(db, 'userSettings', uid),
+        { autoConfirm: newVal },
+        { merge: true }  // ✅ לא דורס שעות פעילות ושאר הגדרות
+      );
+      setAutoConfirm(newVal);
+      showToast(
+        newVal
+          ? '✅ תורים יאושרו אוטומטית מהאתר'
+          : '🔔 תורים ידרשו אישור ידני שלך',
+        'success'
+      );
+    } catch (err) {
+      console.error('[Settings] autoConfirm toggle:', err);
+      showToast('שגיאה בשמירת ההגדרה', 'error');
+    } finally {
+      setSavingToggle(false);
+    }
+  };
 
   useGSAP(() => {
     gsap.from('.gsap-card', {
@@ -87,10 +159,12 @@ export default function Settings() {
         const snapshot = await getDocs(q);
         exportData[col] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       }
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportData, null, 2)],
+        { type: 'application/json' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `BeautyFlow_backup_${new Date().toLocaleDateString('he-IL').replace(/\//g, '-')}.json`;
+      link.download = `BeautyFlow_backup_${new Date()
+        .toLocaleDateString('he-IL').replace(/\//g, '-')}.json`;
       link.click();
       showToast('הנתונים יוצאו בהצלחה! 📥', 'success');
     } catch (error) {
@@ -178,7 +252,8 @@ export default function Settings() {
   };
 
   return (
-    <div className="pt-2 pb-8 px-4 md:p-8 transition-colors" ref={containerRef} dir="rtl">
+    <div className="pt-2 pb-8 px-4 md:p-8 transition-colors"
+         ref={containerRef} dir="rtl">
 
       {/* ── כותרת ─────────────────────────────────────────────────────── */}
       <div className="gsap-card mb-6">
@@ -232,6 +307,12 @@ export default function Settings() {
           label="שעות פעילות"
         />
         <Tab
+          active={activeTab === 'booking'}
+          onClick={() => setActiveTab('booking')}
+          icon={<Globe className="w-4 h-4" />}
+          label="הזמנות אונליין"
+        />
+        <Tab
           active={activeTab === 'data'}
           onClick={() => setActiveTab('data')}
           icon={<Download className="w-4 h-4" />}
@@ -239,16 +320,114 @@ export default function Settings() {
         />
       </div>
 
-      {/* ── תוכן לפי Tab ──────────────────────────────────────────────── */}
-
-      {/* Tab: שעות פעילות */}
+      {/* ── Tab: שעות פעילות ──────────────────────────────────────────── */}
       {activeTab === 'hours' && (
         <div className="gsap-card">
           <BusinessHoursSettings />
         </div>
       )}
 
-      {/* Tab: גיבוי ונתונים */}
+      {/* ── Tab: הזמנות אונליין ───────────────────────────────────────── */}
+      {activeTab === 'booking' && (
+        <div className="space-y-4">
+
+          {/* אישור אוטומטי */}
+          <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
+                          shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-start gap-3 mb-5">
+              <div className="p-3 bg-pink-50 dark:bg-pink-900/30 rounded-xl shrink-0">
+                <Globe className="w-6 h-6 text-[#e5007e]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">
+                  הגדרות דף הבוקינג
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  שלטי על איך תורים מהאינטרנט מתנהלים
+                </p>
+              </div>
+            </div>
+
+            {loadingSettings ? (
+              <div className="flex justify-center py-4">
+                <div className="w-6 h-6 border-2 border-[#e5007e]
+                                border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+
+                {/* שורת מתג אישור אוטומטי */}
+                <div className="flex items-center justify-between p-4
+                                bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                  <div className="flex-1 ml-4">
+                    <p className="font-semibold text-gray-800 dark:text-gray-100 text-sm">
+                      אישור תורים אוטומטי מהאתר
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {autoConfirm
+                        ? '✅ תורים נכנסים ישר ליומן ללא אישור ידני'
+                        : '🔔 כל תור ממתין לאישורך במסך הבקשות'}
+                    </p>
+                  </div>
+                  <ToggleSwitch
+                    enabled={autoConfirm}
+                    onToggle={handleToggleAutoConfirm}
+                    loading={savingToggle}
+                  />
+                </div>
+
+                {/* הסבר מורחב */}
+                <div className={`p-4 rounded-xl border text-sm transition-colors
+                  ${autoConfirm
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                  }`}>
+                  <p className={`font-semibold mb-1 ${
+                    autoConfirm
+                      ? 'text-green-800 dark:text-green-300'
+                      : 'text-blue-800 dark:text-blue-300'
+                  }`}>
+                    {autoConfirm ? '⚡ מצב טייס אוטומטי פעיל' : '👀 מצב אישור ידני פעיל'}
+                  </p>
+                  <p className={`text-xs leading-relaxed ${
+                    autoConfirm
+                      ? 'text-green-700 dark:text-green-400'
+                      : 'text-blue-700 dark:text-blue-400'
+                  }`}>
+                    {autoConfirm
+                      ? 'לקוחות שקובעות תור דרך הלינק הציבורי שלך — התור נכנס ישירות ליומן ונוצר כרטיס לקוחה ב-CRM, הכל ללא התערבות שלך.'
+                      : 'כל בקשת תור מהלינק הציבורי מחכה לך במסך "בקשות תורים". את מאשרת או דוחה כל בקשה בנפרד.'}
+                  </p>
+                </div>
+
+              </div>
+            )}
+          </div>
+
+          {/* כרטיס מידע */}
+          <div className="gsap-card bg-gradient-to-r from-[#e5007e] to-[#ff4da6]
+                          dark:from-[#b30062] dark:to-[#e5007e]
+                          rounded-2xl p-5 text-white shadow-md">
+            <h3 className="font-bold mb-3">💡 מתי להשתמש בכל מצב?</h3>
+            <ul className="space-y-2 text-sm">
+              <li className="flex items-start gap-2">
+                <span className="shrink-0">⚡</span>
+                <span><strong>אוטומטי</strong> — מתאים אם לוח הזמנים שלך קבוע ואת סומכת על המערכת</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0">👀</span>
+                <span><strong>ידני</strong> — מתאים אם את רוצה לבדוק כל לקוחה לפני אישור</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0">🔔</span>
+                <span>בשני המצבים תקבלי Badge אדום בתפריט כשמגיעות בקשות חדשות</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: גיבוי ונתונים ────────────────────────────────────────── */}
       {activeTab === 'data' && (
         <div className="space-y-4">
 

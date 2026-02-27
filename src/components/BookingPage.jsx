@@ -1,10 +1,4 @@
 // src/components/BookingPage.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// דף קביעת תור ציבורי — נגיש ללא התחברות
-// URL: /book/:providerId
-// Flow: בחירת שירות → תאריך + שעה → פרטים → אישור
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
@@ -13,10 +7,10 @@ import {
 } from '../hooks/useBookingPage';
 import {
   Calendar, Clock, User, Phone, CheckCircle,
-  ChevronRight, Store, FileText, AlertCircle, Sparkles,
+  ChevronRight, Store, FileText, AlertCircle, Sparkles, Shield,
 } from 'lucide-react';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const HE_DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 const HE_MONTHS     = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יוני','יולי','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
@@ -80,7 +74,8 @@ function ErrorScreen({ message }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6" dir="rtl">
       <div className="text-center">
-        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center
+                        justify-center mx-auto mb-4">
           <AlertCircle className="w-8 h-8 text-red-500" />
         </div>
         <h2 className="text-lg font-bold text-gray-800 mb-2">שגיאה בטעינת הדף</h2>
@@ -94,7 +89,6 @@ function ErrorScreen({ message }) {
 
 export default function BookingPage() {
   const { providerId } = useParams();
-
   const [step, setStep] = useState(1);
 
   const {
@@ -105,20 +99,23 @@ export default function BookingPage() {
     submitBookingRequest,
   } = useBookingPage(providerId);
 
-  const [selectedService, setSelectedService] = useState(null);
-  const [selectedDate,    setSelectedDate]    = useState(toDateStr(new Date()));
-  const [selectedTime,    setSelectedTime]    = useState(null);
-  const [guestName,       setGuestName]       = useState('');
-  const [guestPhone,      setGuestPhone]      = useState('');
-  const [notes,           setNotes]           = useState('');
+  const [selectedService,  setSelectedService]  = useState(null);
+  const [selectedDate,     setSelectedDate]     = useState(toDateStr(new Date()));
+  const [selectedTime,     setSelectedTime]     = useState(null);
+  const [guestName,        setGuestName]        = useState('');
+  const [guestPhone,       setGuestPhone]       = useState('');
+  const [notes,            setNotes]            = useState('');
+  const [isConsentChecked, setIsConsentChecked] = useState(false);
+  const [availableSlots,   setAvailableSlots]   = useState([]);
+  const [submitError,      setSubmitError]      = useState(null);
+  const [phoneError,       setPhoneError]       = useState('');
 
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [submitError,    setSubmitError]    = useState(null);
-  const [phoneError,     setPhoneError]     = useState('');
+  // ✅ UX: האם הטלפון נוגע (touched) — מציג שגיאה רק אחרי שהמשתמש הקליד
+  const [phoneTouched, setPhoneTouched] = useState(false);
 
   const datesList = useMemo(() => getDates(21), []);
 
-  // ── שליפת slots בשינוי תאריך ───────────────────────────────────
+  // ── שליפת slots בשינוי תאריך ────────────────────────────────────
   const handleDateChange = useCallback(async (newDate, service) => {
     setSelectedDate(newDate);
     setSelectedTime(null);
@@ -127,22 +124,38 @@ export default function BookingPage() {
     setAvailableSlots(calculateAvailableSlots(newDate, service.duration, fresh));
   }, [fetchBookedSlots, calculateAvailableSlots]);
 
-  // מאזינים רק ל-step בלבד!
   useEffect(() => {
     if (step === 2 && selectedService) {
       handleDateChange(selectedDate, selectedService);
     }
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── שליחת בקשת תור ─────────────────────────────────────────────
+  // ── וולידציה live לטלפון ─────────────────────────────────────────
+  // ✅ מציג שגיאה רק אחרי שהמשתמש סיים להקליד (onBlur)
+  const handlePhoneBlur = () => {
+    setPhoneTouched(true);
+    if (guestPhone && !isValidPhone(guestPhone)) {
+      setPhoneError('מספר טלפון לא תקין (דוגמה: 050-1234567)');
+    } else {
+      setPhoneError('');
+    }
+  };
+
+  // ── שליחת טופס ──────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
 
     if (!isValidPhone(guestPhone)) {
+      setPhoneTouched(true);
       setPhoneError('מספר טלפון לא תקין (דוגמה: 050-1234567)');
       return;
     }
+    if (!isConsentChecked) {
+      setSubmitError('יש לאשר את תנאי השימוש ומדיניות הפרטיות.');
+      return;
+    }
+
     setPhoneError('');
     setSubmitError(null);
 
@@ -166,14 +179,11 @@ export default function BookingPage() {
   };
 
   // ─────────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────────
-
   if (loadingInitial) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="flex flex-col items-center gap-3">
-        <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent
-                        rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-[#e5007e]
+                        border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-gray-400">טוענת פרטי העסק...</p>
       </div>
     </div>
@@ -182,6 +192,12 @@ export default function BookingPage() {
   if (errorInitial) return <ErrorScreen message={errorInitial} />;
 
   const businessName = providerSettings?.businessName || 'קביעת תור';
+
+  // ✅ האם הטופס מוכן לשליחה
+  const canSubmit = guestName.trim().length >= 2
+    && isValidPhone(guestPhone)
+    && isConsentChecked
+    && !submitting;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-purple-50
@@ -194,7 +210,7 @@ export default function BookingPage() {
                       sm:rounded-3xl sm:shadow-2xl sm:shadow-pink-200/40
                       overflow-hidden relative">
 
-        {/* ── Header ──────────────────────────────────────────────── */}
+        {/* ── Header ────────────────────────────────────────────── */}
         <div className="bg-gradient-to-br from-[#e5007e] to-[#b30062]
                         text-white px-6 pt-6 pb-5 shrink-0 relative z-10">
           <div className="flex items-center">
@@ -225,10 +241,10 @@ export default function BookingPage() {
           {step < 4 && <StepIndicator step={step} />}
         </div>
 
-        {/* ── תוכן ────────────────────────────────────────────────── */}
+        {/* ── תוכן ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto bg-gray-50/30">
 
-          {/* ═══ שלב 1: בחירת שירות ══════════════════════════════ */}
+          {/* ═══ שלב 1: בחירת שירות ════════════════════════════ */}
           {step === 1 && (
             <div className="p-4 space-y-3 pb-10">
               {services.length === 0 ? (
@@ -255,7 +271,8 @@ export default function BookingPage() {
                           <span className="font-bold text-gray-800 text-base">
                             {srv.title}
                           </span>
-                          <span className="text-sm text-gray-400 mt-1 flex items-center gap-1">
+                          <span className="text-sm text-gray-400 mt-1
+                                           flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5 shrink-0" />
                             {srv.duration} דקות
                           </span>
@@ -264,7 +281,8 @@ export default function BookingPage() {
                           <span className="font-bold text-[#e5007e] text-lg">
                             ₪{Number(srv.price).toLocaleString('he-IL')}
                           </span>
-                          <span className="text-xs text-gray-300 group-hover:text-[#e5007e]
+                          <span className="text-xs text-gray-300
+                                           group-hover:text-[#e5007e]
                                            transition-colors font-medium">
                             לחצי לבחירה ←
                           </span>
@@ -281,27 +299,30 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ═══ שלב 2: תאריך + שעה ══════════════════════════════ */}
+          {/* ═══ שלב 2: תאריך + שעה ════════════════════════════ */}
           {step === 2 && (
             <div className="flex flex-col relative"
                  style={{ minHeight: 'calc(100vh - 180px)' }}>
 
               {/* סרגל תאריכים */}
-              <div className="px-4 pt-4 pb-2 bg-white border-b border-gray-100 shrink-0">
-                <p className="text-xs font-semibold text-gray-500 mb-3 flex items-center gap-1.5">
+              <div className="px-4 pt-4 pb-2 bg-white border-b
+                              border-gray-100 shrink-0">
+                <p className="text-xs font-semibold text-gray-500 mb-3
+                               flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-[#e5007e]" />
                   בחרי תאריך
                 </p>
                 <div className="flex gap-2 overflow-x-auto pb-2"
                      style={{ scrollbarWidth: 'none' }}>
                   {datesList.map((d) => {
-                    const dStr     = toDateStr(d);
-                    const isSel    = selectedDate === dStr;
-                    const dayCfg   = providerSettings?.businessHours?.[d.getDay()];
+                    const dStr   = toDateStr(d);
+                    const isSel  = selectedDate === dStr;
+                    const dayCfg = providerSettings?.businessHours?.[d.getDay()];
                     const isClosed = providerSettings?.closedDays?.includes(dStr)
                                      || !dayCfg || !dayCfg.isActive;
                     return (
                       <button key={dStr}
+                        disabled={isClosed}
                         onClick={() => handleDateChange(dStr, selectedService)}
                         className={`flex flex-col items-center justify-center
                                     min-w-[62px] py-3 px-2 rounded-2xl border
@@ -309,16 +330,21 @@ export default function BookingPage() {
                           isSel
                             ? 'bg-[#e5007e] border-[#e5007e] text-white shadow-lg shadow-pink-400/30 scale-105'
                             : isClosed
-                            ? 'bg-gray-50 border-gray-100 text-gray-300 opacity-60'
+                            ? 'bg-gray-50 border-gray-100 text-gray-300 opacity-60 cursor-not-allowed'
                             : 'bg-white border-gray-200 text-gray-600 hover:border-pink-200 hover:bg-pink-50'
                         }`}>
                         <span className={`text-[10px] font-semibold ${
-                          isSel ? 'text-pink-100' : isClosed ? 'text-gray-300' : 'text-gray-400'
+                          isSel ? 'text-pink-100'
+                            : isClosed ? 'text-gray-300' : 'text-gray-400'
                         }`}>
                           {HE_DAYS_SHORT[d.getDay()]}
                         </span>
-                        <span className="text-xl font-bold my-0.5">{d.getDate()}</span>
-                        <span className={`text-[10px] ${isSel ? 'text-pink-200' : 'text-gray-400'}`}>
+                        <span className="text-xl font-bold my-0.5">
+                          {d.getDate()}
+                        </span>
+                        <span className={`text-[10px] ${
+                          isSel ? 'text-pink-200' : 'text-gray-400'
+                        }`}>
                           {HE_MONTHS[d.getMonth()]}
                         </span>
                       </button>
@@ -329,7 +355,8 @@ export default function BookingPage() {
 
               {/* רשת שעות */}
               <div className="flex-1 overflow-y-auto p-4 pb-32">
-                <p className="text-xs font-semibold text-gray-500 mb-3 flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-gray-500 mb-3
+                               flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#e5007e]" />
                   שעות פנויות
                   {!loadingSlots && availableSlots.length > 0 && (
@@ -348,8 +375,12 @@ export default function BookingPage() {
                   <div className="text-center py-12 bg-white rounded-2xl
                                   border border-dashed border-gray-200">
                     <Calendar className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                    <p className="text-gray-500 font-medium">אין שעות פנויות ביום זה</p>
-                    <p className="text-gray-400 text-xs mt-1">נסי לבחור תאריך אחר</p>
+                    <p className="text-gray-500 font-medium">
+                      אין שעות פנויות ביום זה
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1">
+                      נסי לבחור תאריך אחר
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 gap-2.5">
@@ -381,13 +412,16 @@ export default function BookingPage() {
                         day: 'numeric', month: 'long',
                       })}
                     </span>
-                    <span className="font-bold text-[#e5007e]">🕐 {selectedTime}</span>
+                    <span className="font-bold text-[#e5007e]">
+                      🕐 {selectedTime}
+                    </span>
                   </div>
                   <button
                     onClick={() => setStep(3)}
                     className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
                                py-4 rounded-2xl font-bold text-base
-                               shadow-lg shadow-pink-500/30 transition-all active:scale-95">
+                               shadow-lg shadow-pink-500/30 transition-all
+                               active:scale-95">
                     המשך לפרטים אישיים ←
                   </button>
                 </div>
@@ -395,21 +429,30 @@ export default function BookingPage() {
             </div>
           )}
 
-          {/* ═══ שלב 3: פרטי לקוחה ════════════════════════════════ */}
+          {/* ═══ שלב 3: פרטי לקוחה ══════════════════════════════ */}
           {step === 3 && (
             <div className="p-4 pb-10">
-              <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-5 shadow-sm">
-                <p className="text-xs text-gray-400 font-medium mb-2">סיכום הבקשה שלך</p>
+
+              {/* סיכום בקשה */}
+              <div className="bg-white border border-gray-100 rounded-2xl
+                              p-4 mb-5 shadow-sm">
+                <p className="text-xs text-gray-400 font-medium mb-2">
+                  סיכום הבקשה שלך
+                </p>
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="font-bold text-gray-800">{selectedService?.title}</p>
-                    <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+                    <p className="font-bold text-gray-800">
+                      {selectedService?.title}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-0.5
+                                  flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" />
                       {parseDateStr(selectedDate).toLocaleDateString('he-IL', {
                         weekday: 'long', day: 'numeric', month: 'long',
                       })}
                     </p>
-                    <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+                    <p className="text-sm text-gray-500 mt-0.5
+                                  flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5" />
                       {selectedTime} · {selectedService?.duration} דקות
                     </p>
@@ -421,13 +464,15 @@ export default function BookingPage() {
                     <button onClick={() => setStep(2)}
                       className="text-xs text-gray-400 hover:text-[#e5007e]
                                  underline transition-colors mt-1">
-                      שני
+                      שינוי
                     </button>
                   </div>
                 </div>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+
+                {/* שם */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -444,6 +489,7 @@ export default function BookingPage() {
                                outline-none transition-all text-base" />
                 </div>
 
+                {/* טלפון */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -453,7 +499,12 @@ export default function BookingPage() {
                   </label>
                   <input type="tel" required dir="ltr"
                     value={guestPhone}
-                    onChange={(e) => { setGuestPhone(e.target.value); setPhoneError(''); }}
+                    onChange={(e) => {
+                      setGuestPhone(e.target.value);
+                      // ✅ מנקה שגיאה בזמן הקלדה רק אם הטלפון כבר תקין
+                      if (isValidPhone(e.target.value)) setPhoneError('');
+                    }}
+                    onBlur={handlePhoneBlur}
                     placeholder="050-0000000"
                     className={`w-full p-3.5 rounded-xl border bg-white focus:ring-1
                                 outline-none transition-all text-base text-right ${
@@ -468,6 +519,7 @@ export default function BookingPage() {
                   )}
                 </div>
 
+                {/* הערות */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -489,6 +541,64 @@ export default function BookingPage() {
                   </p>
                 </div>
 
+                {/* ✅ Legal Consent — משופר מבחינת UX */}
+                <div className={`flex items-start gap-3 p-4 rounded-2xl border-2
+                                 transition-all cursor-pointer
+                                 ${isConsentChecked
+                                   ? 'bg-green-50 border-green-200'
+                                   : 'bg-gray-50 border-gray-200 hover:border-pink-200'
+                                 }`}
+                     onClick={() => {
+                       setIsConsentChecked((v) => !v);
+                       setSubmitError(null);
+                     }}>
+                  {/* ✅ Checkbox מותאם — גדול יותר וקל לסימון במובייל */}
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center
+                                   justify-center shrink-0 mt-0.5 transition-all
+                                   ${isConsentChecked
+                                     ? 'bg-[#e5007e] border-[#e5007e]'
+                                     : 'bg-white border-gray-300'
+                                   }`}>
+                    {isConsentChecked && (
+                      <svg className="w-3 h-3 text-white" fill="none"
+                           viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round"
+                              d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  {/* ✅ hidden input לנגישות */}
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={isConsentChecked}
+                    onChange={(e) => {
+                      setIsConsentChecked(e.target.checked);
+                      setSubmitError(null);
+                    }}
+                  />
+                  <div className="flex-1">
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      אני מאשר/ת את{' '}
+                      <span
+                        className="text-[#e5007e] underline hover:text-[#b30062]"
+                        onClick={(e) => e.stopPropagation()}>
+                        תנאי השימוש ומדיניות הפרטיות
+                      </span>
+                      {' '}ומסכימ/ת לשמירת פרטיי לצורך ניהול התור.
+                    </p>
+                    {/* ✅ תג "מאושר" אחרי סימון */}
+                    {isConsentChecked && (
+                      <p className="text-xs text-green-600 font-semibold mt-1
+                                    flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        פרטיך מאובטחים ושמורים
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* שגיאת שליחה */}
                 {submitError && (
                   <div className="flex items-start gap-2 p-3 rounded-xl
                                   bg-red-50 border border-red-200">
@@ -497,33 +607,44 @@ export default function BookingPage() {
                   </div>
                 )}
 
+                {/* ✅ כפתור שליחה — עם הסבר למה disabled */}
                 <button type="submit"
-                  disabled={submitting || !guestName.trim() || !guestPhone.trim()}
+                  disabled={!canSubmit}
                   className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
                              py-4 rounded-2xl font-bold text-base mt-2
                              shadow-lg shadow-pink-500/30 transition-all
-                             disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
+                             disabled:opacity-50 disabled:cursor-not-allowed
+                             active:scale-95">
                   {submitting ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-4 h-4 border-2 border-white
                                        border-t-transparent rounded-full animate-spin" />
                       שולחת בקשה...
                     </span>
-                  ) : 'שלחי בקשה לתור ✨'}
+                  ) : !isConsentChecked ? (
+                    '✋ יש לאשר את תנאי השימוש'
+                  ) : (
+                    'שלחי בקשה לתור ✨'
+                  )}
                 </button>
+
               </form>
             </div>
           )}
 
-          {/* ═══ שלב 4: הצלחה ════════════════════════════════════ */}
+          {/* ═══ שלב 4: הצלחה ═══════════════════════════════════ */}
           {step === 4 && (
             <div className="flex flex-col items-center justify-center
                             text-center px-6 py-16 min-h-[60vh]">
+              {/* ✅ אנימציית כניסה */}
               <div className="w-24 h-24 bg-green-100 rounded-full
-                              flex items-center justify-center mb-6">
+                              flex items-center justify-center mb-6
+                              animate-bounce">
                 <CheckCircle className="w-12 h-12 text-green-500" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">הבקשה נשלחה! 🎉</h2>
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                הבקשה נשלחה! 🎉
+              </h2>
               <p className="text-gray-500 leading-relaxed mb-2">
                 הבקשה לתור ב-
                 <span className="font-semibold text-gray-700">
@@ -532,31 +653,27 @@ export default function BookingPage() {
                   })}
                 </span>
                 {' '}בשעה{' '}
-                <span className="font-semibold text-gray-700">{selectedTime}</span>
+                <span className="font-semibold text-gray-700">
+                  {selectedTime}
+                </span>
                 {' '}התקבלה.
               </p>
               <p className="text-gray-400 text-sm mb-8">
                 ניצור קשר בהקדם לאישור סופי 💅
               </p>
 
-              {/* ✅ כפתור הוספה ליומן הטלפון */}
+              {/* כפתור הוספה ליומן */}
               <button
                 onClick={() => {
-                  // ✅ בניית קובץ .ics תקני
-                  const [y, m, d]   = selectedDate.split('-').map(Number);
-                  const [hh, mm]    = selectedTime.split(':').map(Number);
-                  const endMin      = toMin(selectedTime) + Number(selectedService?.duration);
-                  const endHH       = Math.floor(endMin / 60);
-                  const endMM       = endMin % 60;
-                  
-                  // פורמט ICS: YYYYMMDDTHHMMSS
-                  const pad  = (n) => String(n).padStart(2, '0');
-                  const dtStart = `${y}${pad(m)}${pad(d)}T${pad(hh)}${pad(mm)}00`;
-                  const dtEnd   = `${y}${pad(m)}${pad(d)}T${pad(endHH)}${pad(endMM)}00`;
-                  
-                  const icsContent = [
-                    'BEGIN:VCALENDAR',
-                    'VERSION:2.0',
+                  const [y, m, d] = selectedDate.split('-').map(Number);
+                  const endMin    = toMin(selectedTime) + Number(selectedService?.duration);
+                  const pad       = (n) => String(n).padStart(2, '0');
+                  const [hh, mm]  = selectedTime.split(':').map(Number);
+                  const dtStart   = `${y}${pad(m)}${pad(d)}T${pad(hh)}${pad(mm)}00`;
+                  const dtEnd     = `${y}${pad(m)}${pad(d)}T${pad(Math.floor(endMin / 60))}${pad(endMin % 60)}00`;
+
+                  const ics = [
+                    'BEGIN:VCALENDAR', 'VERSION:2.0',
                     'PRODID:-//BeautyFlow//BookingPage//HE',
                     'BEGIN:VEVENT',
                     `DTSTART:${dtStart}`,
@@ -564,18 +681,14 @@ export default function BookingPage() {
                     `SUMMARY:תור ל${selectedService?.title} — ${businessName}`,
                     `DESCRIPTION:טיפול: ${selectedService?.title}\\nמחיר: ₪${selectedService?.price}\\nמשך: ${selectedService?.duration} דקות`,
                     `LOCATION:${businessName}`,
-                    'STATUS:TENTATIVE', // ממתין לאישור
-                    'END:VEVENT',
-                    'END:VCALENDAR',
+                    'STATUS:TENTATIVE',
+                    'END:VEVENT', 'END:VCALENDAR',
                   ].join('\r\n');
-                  
-                  // יצירת קישור הורדה
-                  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+
+                  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
                   const url  = URL.createObjectURL(blob);
                   const a    = document.createElement('a');
-                  a.href     = url;
-                  a.download = 'appointment.ics';
-                  a.click();
+                  a.href = url; a.download = 'appointment.ics'; a.click();
                   URL.revokeObjectURL(url);
                 }}
                 className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
@@ -585,8 +698,10 @@ export default function BookingPage() {
                 <Calendar className="w-5 h-5" />
                 הוסיפי ליומן 📅
               </button>
-              
-              <p className="text-gray-400 text-xs mt-2 underline cursor-pointer hover:text-gray-600 transition-colors" onClick={() => window.location.reload()}>
+
+              <p className="text-gray-400 text-xs mt-2 underline cursor-pointer
+                            hover:text-gray-600 transition-colors"
+                 onClick={() => window.location.reload()}>
                 קביעת תור נוסף
               </p>
             </div>

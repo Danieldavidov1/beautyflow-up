@@ -7,14 +7,13 @@ import {
 } from 'firebase/firestore';
 import {
   Calendar, Clock, User, Phone, Check, X,
-  FileText, Inbox, Sparkles, RefreshCw,
+  FileText, Inbox, Sparkles, RefreshCw, UserPlus,
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 // ── כרטיס בקשה בודד ──────────────────────────────────────────────────────────
-
 function RequestCard({ req, onApprove, onReject, isProcessing }) {
-  const [y, m, d]  = req.date.split('-');
+  const [y, m, d] = req.date.split('-');
   const displayDate = `${d}/${m}/${y}`;
 
   return (
@@ -22,11 +21,9 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
                     border border-gray-100 dark:border-gray-700
                     p-5 relative overflow-hidden flex flex-col
                     hover:shadow-md transition-shadow">
-
       {/* פס עליון */}
       <div className="absolute top-0 left-0 right-0 h-1
                       bg-gradient-to-r from-[#e5007e] to-purple-500" />
-
       {/* שורת כותרת */}
       <div className="flex justify-between items-start mb-4 mt-1">
         <div>
@@ -44,23 +41,22 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
         </div>
         <div className="bg-pink-50 dark:bg-pink-900/30 text-[#e5007e]
                         px-2.5 py-1 rounded-lg text-sm font-bold shrink-0">
-          ₪{Number(req.price).toLocaleString('he-IL')}
+          {/* ✅ התיקון: מגן מפני מחיר חסר */}
+          ₪{Number(req.price || 0).toLocaleString('he-IL')}
         </div>
       </div>
-
       {/* פרטי הטיפול */}
       <div className="space-y-2.5 bg-gray-50 dark:bg-gray-700/50
                       p-3 rounded-xl mb-4 text-sm
                       text-gray-600 dark:text-gray-300 flex-1">
-
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-white dark:bg-gray-600
                           flex items-center justify-center shadow-sm shrink-0">
             <Sparkles className="w-3.5 h-3.5 text-purple-500" />
           </div>
-          <span className="font-semibold">{req.serviceTitle}</span>
+          {/* ✅ התיקון: תמיכה בשמות שירותים מגרסאות שונות */}
+          <span className="font-semibold">{req.serviceTitle || req.title || ''}</span>
         </div>
-
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-white dark:bg-gray-600
                           flex items-center justify-center shadow-sm shrink-0">
@@ -68,19 +64,18 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
           </div>
           <span>{displayDate}</span>
         </div>
-
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-white dark:bg-gray-600
                           flex items-center justify-center shadow-sm shrink-0">
             <Clock className="w-3.5 h-3.5 text-orange-500" />
           </div>
-          <span>{req.startTime} – {req.endTime}
+          <span>
+            {req.startTime} – {req.endTime}
             <span className="text-gray-400 dark:text-gray-500 mr-1">
-              ({req.duration} דק׳)
+              ({req.duration || 0} דק׳)
             </span>
           </span>
         </div>
-
         {req.notes && (
           <div className="flex items-start gap-2 pt-2
                           border-t border-gray-200 dark:border-gray-600">
@@ -91,7 +86,6 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
           </div>
         )}
       </div>
-
       {/* כפתורי פעולה */}
       <div className="flex gap-2 mt-auto">
         <button
@@ -105,7 +99,6 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
                      transition-colors disabled:opacity-40">
           <X className="w-4 h-4" /> דחיה
         </button>
-
         <button
           onClick={() => onApprove(req)}
           disabled={isProcessing}
@@ -127,11 +120,12 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
 }
 
 // ── BookingRequests ───────────────────────────────────────────────────────────
-
 export default function BookingRequests() {
   const [requests,      setRequests]      = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
+  
+  // ✅ שימוש נקי וברור כפי שפרפלקסיטי הציע
   const { showToast } = useToast();
 
   // ── שליפת בקשות ממתינות ──────────────────────────────────────────
@@ -144,8 +138,7 @@ export default function BookingRequests() {
         where('ownerUid', '==', auth.currentUser.uid),
         where('status',   '==', 'pending'),
       ));
-
-      // ✅ מיון ידני: date לא מספיק — ממיינים גם לפי startTime לסדר נכון באותו יום
+      // מיון ידני: date + startTime לסדר נכון באותו יום
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) =>
@@ -153,7 +146,6 @@ export default function BookingRequests() {
             ? a.date.localeCompare(b.date)
             : a.startTime.localeCompare(b.startTime)
         );
-
       setRequests(list);
     } catch (err) {
       console.error('[BookingRequests] fetch:', err);
@@ -165,37 +157,73 @@ export default function BookingRequests() {
 
   useEffect(() => { fetchPendingRequests(); }, [fetchPendingRequests]);
 
+  // ── אוטומציית CRM: מצא או צור לקוחה ────────────────────────────
+  const findOrCreateCustomer = async (req) => {
+    const uid = auth.currentUser.uid;
+    // חיפוש לפי טלפון — מונע כפילויות
+    const existing = await getDocs(query(
+      collection(db, 'customers'),
+      where('userId', '==', uid),
+      where('phone',  '==', req.guestPhone),
+    ));
+    if (!existing.empty) {
+      // ✅ לקוחה קיימת — מחזירים את ה-ID שלה
+      return { customerId: existing.docs[0].id, isNew: false };
+    }
+    // ✅ לקוחה חדשה — יוצרים כרטיס ב-CRM
+    const newCustomer = await addDoc(collection(db, 'customers'), {
+      userId:    uid,
+      name:      req.guestName,
+      phone:     req.guestPhone,
+      source:    'online_booking', // סימון שהגיעה מהאינטרנט
+      createdAt: serverTimestamp(),
+    });
+    return { customerId: newCustomer.id, isNew: true };
+  };
+
   // ── אישור תור ─────────────────────────────────────────────────────
   const handleApprove = async (req) => {
     setActionLoading(req.id);
     try {
-      // א. הוסף ל-appointments
+      // א. מצא או צור לקוחה ב-CRM
+      const { customerId, isNew } = await findOrCreateCustomer(req);
+      
+      // ב. הוסף תור ל-appointments עם customerId ועם הגנות לשדות חסרים
       await addDoc(collection(db, 'appointments'), {
         userId:        auth.currentUser.uid,
+        customerId,                          
         customerName:  req.guestName,
         customerPhone: req.guestPhone,
-        serviceId:     req.serviceId,
-        serviceTitle:  req.serviceTitle,
+        serviceId:     req.serviceId || '',
+        serviceTitle:  req.serviceTitle || req.title || '',
         date:          req.date,
         startTime:     req.startTime,
-        endTime:       req.endTime,
-        duration:      req.duration,
-        price:         req.price,
+        endTime:       req.endTime || '',
+        duration:      req.duration || 0,
+        price:         req.price || 0,
         status:        'scheduled',
-        source:        'online_booking', // ✅ מאפשר סינון עתידי
+        source:        'online_booking',
         notes:         req.notes || '',
         createdAt:     serverTimestamp(),
       });
 
-      // ב. עדכן סטטוס ב-bookingRequests
+      // ג. עדכן סטטוס הבקשה ל-approved
       await updateDoc(doc(db, 'bookingRequests', req.id), {
-        status:    'approved',
-        updatedAt: serverTimestamp(),
+        status:     'approved',
+        customerId,  
+        updatedAt:  serverTimestamp(),
       });
 
-      // ג. הסר מה-UI
+      // ד. הסר מה-UI
       setRequests((prev) => prev.filter((r) => r.id !== req.id));
-      showToast(`✅ התור של ${req.guestName} אושר ונוסף ליומן!`, 'success');
+      
+      // ה. Toast מותאם — לקוחה חדשה או קיימת
+      showToast(
+        isNew
+          ? `✅ התור אושר ולקוחה חדשה נוצרה אוטומטית (${req.guestName})!`
+          : `✅ התור אושר וקושר ללקוחה הקיימת (${req.guestName})`,
+        'success'
+      );
     } catch (err) {
       console.error('[BookingRequests] approve:', err);
       showToast('שגיאה באישור התור', 'error');
@@ -234,7 +262,6 @@ export default function BookingRequests() {
   // ── RENDER ────────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto" dir="rtl">
-
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -253,7 +280,6 @@ export default function BookingRequests() {
             תורים שהתקבלו דרך הלינק הציבורי וממתינים לאישורך
           </p>
         </div>
-
         {/* כפתור רענון */}
         <button
           onClick={fetchPendingRequests}
@@ -263,7 +289,19 @@ export default function BookingRequests() {
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
-
+      {/* legend — הסבר אוטומציה */}
+      {requests.length > 0 && (
+        <div className="flex items-center gap-2 mb-4 px-3 py-2
+                        bg-purple-50 dark:bg-purple-900/20
+                        border border-purple-100 dark:border-purple-800
+                        rounded-xl text-xs text-purple-600 dark:text-purple-300">
+          <UserPlus className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            עם אישור תור — לקוחה חדשה תתווסף ל-CRM אוטומטית,
+            או תקושר ללקוחה קיימת לפי מספר טלפון.
+          </span>
+        </div>
+      )}
       {/* Empty state */}
       {requests.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm
