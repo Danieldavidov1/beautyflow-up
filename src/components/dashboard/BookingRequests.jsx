@@ -312,7 +312,7 @@ export default function BookingRequests() {
             <Check className="w-10 h-10 text-green-400" />
           </div>
           <h2 className="text-lg font-bold text-gray-700 dark:text-gray-200 mb-1">
-            אין בקשות ממתינות 🎉
+            אין בקשות ממתינות 
           </h2>
           <p className="text-gray-400 dark:text-gray-500 text-sm">
             כל הבקשות טופלו! תורים חדשים יופיעו כאן אוטומטית.

@@ -561,7 +561,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
           {/* ── Title ───────────────────────────────────────────────────── */}
           <div className="mb-6 md:mb-8 gsap-card">
             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1">
-              מסך הבית 🏠
+              מסך הבית
             </h1>
             <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
               סקירה כללית של הפיננסים שלך
@@ -587,7 +587,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
               </div>
               <div>
                 <h2 className="text-lg md:text-xl font-medium">
-                  {isProfit ? 'רווח נקי החודש 🎉' : 'הפסד החודש ⚠️'}
+                  {isProfit ? 'רווח נקי החודש' : 'הפסד החודש ⚠️'}
                 </h2>
                 <p className="text-xs md:text-sm text-white/80">
                   {MONTHS_HE[currentMonth]} {currentYear}
@@ -599,7 +599,7 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
             </p>
             <p className="text-sm md:text-base text-white/90">
               {isProfit
-                ? 'כל הכבוד! אתה ברווח החודש 💪'
+                ? 'כל הכבוד! אתה ברווח החודש '
                 : 'שים לב - אתה בהפסד החודש'}
             </p>
           </div>
@@ -876,10 +876,10 @@ export default function Dashboard({ currentPage, setCurrentPage }) {
                             p-12 text-center transition-colors">
               <Wallet className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                ברוך הבא! 👋
+                ברוך הבא! 
               </h3>
               <p className="text-gray-500 dark:text-gray-400">
-                התחל להוסיף הכנסות והוצאות כדי לראות את הסטטיסטיקות שלך כאן
+                להתחיל להוסיף הכנסות והוצאות כדי לראות את הסטטיסטיקות שלך כאן
               </p>
             </div>
           )}

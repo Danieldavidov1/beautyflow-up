@@ -392,7 +392,7 @@ export default function Income() {
           {/* כותרת */}
           <div className="gsap-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 md:mb-8">
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1 transition-colors">הכנסות 💰</h1>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-1 transition-colors">הכנסות </h1>
               <p className="text-sm md:text-base text-gray-600 dark:text-gray-400 transition-colors">עקוב אחרי כל ההכנסות שלך</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">

@@ -418,10 +418,10 @@ export default function Tasks() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-            ✅ ניהול משימות
+             ניהול המשימות שלי
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            עקוב אחר המשימות והמטלות שלך
+            מעקב אחר המשימות והמטלות שלך
           </p>
         </div>
         <button
