@@ -7,13 +7,14 @@ import {
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'מסך הבית',        path: 'dashboard'  },
   { icon: CalendarIcon,    label: 'יומן תורים',      path: 'calendar'   },
   { icon: Users,           label: 'לקוחות',           path: 'customers'  },
   { icon: Tag,             label: 'שירותים ומחירון', path: 'services'   },
-  { icon: Inbox,           label: 'בקשות תורים',     path: 'requests'   }, // ✅ חדש
+  { icon: Inbox,           label: 'בקשות תורים',     path: 'requests'   },
   { icon: TrendingUp,      label: 'הכנסות',           path: 'income'     },
   { icon: TrendingDown,    label: 'הוצאות',           path: 'expenses'   },
   { icon: Calculator,      label: 'תקציב',            path: 'budget'     },
@@ -34,23 +35,29 @@ export default function Sidebar({
   const [pendingCount, setPendingCount] = useState(0);
 
   // ── האזנה בזמן אמת לבקשות ממתינות ──────────────────────────────
+  // ✅ שיפור: onAuthStateChanged מבטיח שה-listener רץ גם אחרי רענון
   useEffect(() => {
-    if (!auth.currentUser) return;
+    let unsub = () => {};
 
-    const q = query(
-      collection(db, 'bookingRequests'),
-      where('ownerUid', '==', auth.currentUser.uid),
-      where('status',   '==', 'pending'),
-    );
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      unsub(); // ניקוי listener קודם
+      if (!user) { setPendingCount(0); return; }
 
-    // onSnapshot — מתעדכן אוטומטית כשמגיעה בקשה חדשה
-    const unsub = onSnapshot(q, (snap) => {
-      setPendingCount(snap.size);
-    }, (err) => {
-      console.error('[Sidebar] pendingCount:', err);
+      const q = query(
+        collection(db, 'bookingRequests'),
+        where('ownerUid', '==', user.uid),
+        where('status',   '==', 'pending'),
+      );
+
+      // onSnapshot — מתעדכן אוטומטית כשמגיעה בקשה חדשה
+      unsub = onSnapshot(q, (snap) => {
+        setPendingCount(snap.size);
+      }, (err) => {
+        console.error('[Sidebar] pendingCount:', err);
+      });
     });
 
-    return () => unsub(); // ✅ ניקוי listener בעת unmount
+    return () => { unsub(); unsubAuth(); }; // ✅ ניקוי כפול בעת unmount
   }, []);
 
   const handleClick = (path) => {
@@ -95,11 +102,13 @@ export default function Sidebar({
               const isActive = currentPage === item.path;
 
               // ── badge לפי סוג כפתור ──────────────────────────
+              // ✅ שיפור: badge לקוחות מוצג רק עד 99 (לא מנפח את ה-UI)
+              // ✅ badge בקשות — דחוף + אנימציה
               const badge = (() => {
-                if (item.path === 'customers' && customerCount > 0)
-                  return { count: customerCount, urgent: false };
                 if (item.path === 'requests' && pendingCount > 0)
-                  return { count: pendingCount, urgent: true };
+                  return { count: pendingCount > 99 ? '99+' : pendingCount, urgent: true };
+                if (item.path === 'customers' && customerCount > 0)
+                  return { count: customerCount > 99 ? '99+' : customerCount, urgent: false };
                 return null;
               })();
 
