@@ -442,6 +442,42 @@ export default function Calendar() {
   const weekStart  = useMemo(() => getWeekStart(currentDate), [currentDate]);
   const weekDays   = useMemo(() => getWeekDays(weekStart),    [weekStart]);
 
+  // ✅ חישוב דינמי של גבולות היומן לפי שעות העסק
+  const calendarBounds = useMemo(() => {
+    const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
+    const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
+
+    if (!businessHours) return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
+
+    const activeDays = Object.values(businessHours).filter((day) => day?.isActive && day.start && day.end);
+    if (activeDays.length === 0) return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
+
+    const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+    let earliestMin = Infinity;
+    let latestMin   = -Infinity;
+
+    for (const day of activeDays) {
+      const start = toMin(day.start);
+      const end   = toMin(day.end);
+      if (start < earliestMin) earliestMin = start;
+      if (end   > latestMin)   latestMin   = end;
+    }
+
+    if (earliestMin === Infinity || latestMin === -Infinity) {
+      return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
+    }
+
+    // מוסיפים 30 דקות "נשימה" מעל ומתחת כדי שלא ייראה חנוק
+    const paddedMin = Math.max(0,    earliestMin - 30);
+    const paddedMax = Math.min(1439, latestMin   + 30);
+
+    return {
+      minTime: new Date(0, 0, 0, Math.floor(paddedMin / 60), paddedMin % 60),
+      maxTime: new Date(0, 0, 0, Math.floor(paddedMax / 60), paddedMax % 60),
+    };
+  }, [businessHours]);
+
   const navigate = (delta) => {
     const d = new Date(currentDate);
     if (gridMode === 'month')     d.setMonth(d.getMonth() + delta);
@@ -507,13 +543,11 @@ export default function Calendar() {
     setIsModalOpen(true);
   };
 
-  // ✅ handleEventDrop — עם fallback לתצוגת חודש (תיקון Gemini)
   const handleEventDrop = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date = toDateStr(start);
     let startTime = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
     let endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
-    // בתצוגת חודש react-big-calendar שולח 00:00 — שומרים על השעות המקוריות
     if (startTime === '00:00' && endTime === '00:00') {
       startTime = event.resource.startTime;
       endTime   = event.resource.endTime;
@@ -527,7 +561,6 @@ export default function Calendar() {
     }
   }, [updateAppointment, showToast]);
 
-  // ✅ handleEventResize
   const handleEventResize = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date      = toDateStr(start);
@@ -618,12 +651,15 @@ export default function Calendar() {
 
       {error && (<div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm">{error}</div>)}
 
+      {/* ✅ מועברים minTime ו-maxTime דינמיים */}
       <CalendarView
         appointments={appointments}
         onSelectEvent={(e) => openEdit(e.resource)}
         onSelectSlot={handleSelectSlot}
         onEventDrop={handleEventDrop}
         onEventResize={handleEventResize}
+        minTime={calendarBounds.minTime}
+        maxTime={calendarBounds.maxTime}
         date={currentDate}
         onNavigate={(newDate) => setCurrentDate(newDate)}
         view={gridMode}

@@ -17,12 +17,9 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// ✅ פתרון הקסם לבאג של Vite והייצוא הישן:
+// ✅ פתרון הקסם לבאג של Vite והייצוא הישן (חובה כדי למנוע מסך לבן!):
 const withDnD = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
 const DnDCalendar = withDnD(Calendar);
-
-const MIN_TIME = new Date(0, 0, 0, 7, 0);
-const MAX_TIME = new Date(0, 0, 0, 22, 0);
 
 const eventStyleGetter = (event) => {
   const isBlocked = event.isBlocked;
@@ -68,12 +65,18 @@ const MESSAGES = {
 
 const VIEWS = ['month', 'week', 'day'];
 
+// ✅ Fallbacks למקרה שה-props לא הגיעו
+const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
+const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
+
 export default function CalendarView({
   appointments = [],
   onSelectEvent,
   onSelectSlot,
   onEventDrop,
   onEventResize,
+  minTime,       // ✅ prop חדש
+  maxTime,       // ✅ prop חדש
   date,
   onNavigate,
   view,
@@ -160,8 +163,8 @@ export default function CalendarView({
         resizable
         step={15}
         timeslots={4}
-        min={MIN_TIME}
-        max={MAX_TIME}
+        min={minTime || DEFAULT_MIN}
+        max={maxTime || DEFAULT_MAX}
         eventPropGetter={eventStyleGetter}
         messages={MESSAGES}
         popup
