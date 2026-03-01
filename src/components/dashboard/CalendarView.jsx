@@ -1,15 +1,14 @@
 // src/components/dashboard/CalendarView.jsx
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
+import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { he } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 
-// ── הגדרת שפה לעברית ──────────────────────────────────────────────────────────
 const locales = { he };
-
 const startOfWeekFn = (date) => startOfWeek(date, { weekStartsOn: 0 });
-
 const localizer = dateFnsLocalizer({
   format,
   parse,
@@ -18,93 +17,155 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// שעות תחילה וסיום קבועות — נוצרות פעם אחת, לא בכל render
+// ✅ פתרון הקסם לבאג של Vite והייצוא הישן:
+const withDnD = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
+const DnDCalendar = withDnD(Calendar);
+
 const MIN_TIME = new Date(0, 0, 0, 7, 0);
 const MAX_TIME = new Date(0, 0, 0, 22, 0);
 
-// פונקציית עזר להמרת "YYYY-MM-DD" ו-"HH:MM" לאובייקט Date
+const eventStyleGetter = (event) => {
+  const isBlocked = event.isBlocked;
+  const backgroundColor = isBlocked
+    ? '#f97316'
+    : (event.resource?.color || '#e5007e');
+
+  return {
+    style: {
+      backgroundColor,
+      borderRadius: '8px',
+      opacity:      event.resource?.status === 'cancelled' ? 0.5 : 0.9,
+      color:        'white',
+      border:       'none',
+      display:      'block',
+      fontSize:     '12px',
+      fontWeight:   'bold',
+      padding:      '2px 5px',
+      cursor:       isBlocked ? 'default' : 'pointer',
+      textAlign:    'right',
+    },
+  };
+};
+
 const createDate = (dateStr, timeStr) => {
   if (!dateStr || !timeStr) return new Date();
   const [year, month, day] = dateStr.split('-').map(Number);
-  const [hours, minutes] = timeStr.split(':').map(Number);
+  const [hours, minutes]   = timeStr.split(':').map(Number);
   return new Date(year, month - 1, day, hours, minutes);
 };
 
-// עיצוב ויזואלי — מוגדר מחוץ לקומפוננט למניעת re-creation
-const eventStyleGetter = (event) => ({
-  style: {
-    backgroundColor: event.isBlocked ? '#EF4444' : '#e5007e',
-    borderRadius: '8px',
-    opacity: 0.9,
-    color: 'white',
-    border: 'none',
-    display: 'block',
-    fontSize: '12px',
-    fontWeight: 'bold',
-    padding: '2px 5px',
-  },
-});
-
 const MESSAGES = {
-  week: 'שבוע',
-  work_week: 'שבוע עבודה',
-  day: 'יום',
-  month: 'חודש',
-  previous: 'הקודם',
-  next: 'הבא',
-  today: 'היום',
-  agenda: 'סדר יום',
-  noEventsInRange: 'אין תורים בטווח הזה.',
+  week:             'שבוע',
+  day:              'יום',
+  month:            'חודש',
+  previous:         'הקודם',
+  next:             'הבא',
+  today:            'היום',
+  agenda:           'סדר יום',
+  noEventsInRange:  'אין תורים בטווח הזה.',
+  showMore:         (count) => `+ עוד ${count}`,
 };
 
-export default function CalendarView({ 
-  appointments = [], 
-  onSelectEvent,
-  date,          // ✅ הוסף לשליטה בתאריך
-  onNavigate,    // ✅ הוסף לניווט תאריכים
-  view,          // ✅ הוסף לשליטה בסוג התצוגה
-  onView         // ✅ הוסף למעבר בין תצוגות
-}) {
+const VIEWS = ['month', 'week', 'day'];
 
+export default function CalendarView({
+  appointments = [],
+  onSelectEvent,
+  onSelectSlot,
+  onEventDrop,
+  onEventResize,
+  date,
+  onNavigate,
+  view,
+  onView,
+}) {
   const events = useMemo(() => {
-    return appointments.map((app) => ({
-      id: app.id,
-      title: app.isBlocked
-        ? (app.title || 'חסום')
-        : (app.customerName || app.serviceTitle || 'תור'),
-      start: createDate(app.date, app.startTime),
-      end: createDate(app.date, app.endTime),
-      isBlocked: app.isBlocked === true || app.status === 'blocked',
-      resource: app,
-    }));
+    return appointments.map((app) => {
+      const clientName    = app.customerName || 'לקוחה';
+      const treatmentName = app.title || app.serviceTitle || 'תור';
+      const isBlocked     = app.isBlocked === true || app.status === 'blocked';
+      const displayTitle  = isBlocked
+        ? (app.title || '🔒 זמן חסום')
+        : `${clientName} - ${treatmentName}`;
+
+      return {
+        id:        app.id,
+        title:     displayTitle,
+        start:     createDate(app.date, app.startTime),
+        end:       createDate(app.date, app.endTime),
+        isBlocked,
+        resource:  app,
+      };
+    });
   }, [appointments]);
+
+  const handleSelectEvent = useCallback((event) => {
+    if (event.isBlocked) return;
+    onSelectEvent?.(event);
+  }, [onSelectEvent]);
+
+  const handleSelectSlot = useCallback((slotInfo) => {
+    onSelectSlot?.(slotInfo);
+  }, [onSelectSlot]);
 
   return (
     <div
-      // ✅ הוספנו עיצוב Tailwind עוטף כדי לצבוע את הכפתורים בוורוד
-      className="h-[700px] w-full bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm 
-                 [&_.rbc-toolbar]:mb-4 [&_.rbc-btn-group_button]:!border-[#e5007e] [&_.rbc-btn-group_button]:!text-[#e5007e] [&_.rbc-active]:!bg-[#e5007e] [&_.rbc-active]:!text-white [&_.rbc-today]:!bg-pink-50"
+      className="
+        w-full bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm
+        border border-gray-100 dark:border-gray-700
+
+        [&_.rbc-header]:bg-gray-50 [&_.rbc-header]:dark:bg-gray-700
+        [&_.rbc-header]:text-gray-600 [&_.rbc-header]:dark:text-gray-300
+        [&_.rbc-header]:text-xs [&_.rbc-header]:font-bold
+        [&_.rbc-header]:py-2 [&_.rbc-header]:border-gray-200 [&_.rbc-header]:dark:border-gray-600
+
+        [&_.rbc-month-view]:border-gray-200 [&_.rbc-month-view]:dark:border-gray-600
+        [&_.rbc-day-bg]:dark:bg-gray-800
+        [&_.rbc-off-range-bg]:bg-gray-50 [&_.rbc-off-range-bg]:dark:bg-gray-900/40
+        [&_.rbc-today]:!bg-pink-50 [&_.rbc-today]:dark:!bg-pink-900/10
+
+        [&_.rbc-time-view]:border-gray-200 [&_.rbc-time-view]:dark:border-gray-600
+        [&_.rbc-time-content]:border-gray-200 [&_.rbc-time-content]:dark:border-gray-600
+        [&_.rbc-timeslot-group]:border-gray-100 [&_.rbc-timeslot-group]:dark:border-gray-700
+        [&_.rbc-time-slot]:text-xs [&_.rbc-time-slot]:text-gray-400 [&_.rbc-time-slot]:dark:text-gray-500
+        [&_.rbc-label]:text-xs [&_.rbc-label]:text-gray-400 [&_.rbc-label]:dark:text-gray-500
+
+        [&_.rbc-current-time-indicator]:bg-[#e5007e]
+
+        [&_.rbc-date-cell]:text-xs [&_.rbc-date-cell]:font-semibold
+        [&_.rbc-date-cell]:text-gray-500 [&_.rbc-date-cell]:dark:text-gray-400
+        [&_.rbc-date-cell.rbc-now_a]:!text-[#e5007e] [&_.rbc-date-cell.rbc-now_a]:!font-bold
+      "
       dir="rtl"
+      style={{ height: view === 'month' ? 680 : 720 }}
     >
-      <Calendar
+      <DnDCalendar
         localizer={localizer}
         events={events}
         startAccessor="start"
         endAccessor="end"
         culture="he"
         rtl={true}
-        date={date}             // ✅ מקבל תאריך מבחוץ
-        onNavigate={onNavigate} // ✅ מעדכן תאריך מבחוץ (כפתורי הבא/קודם)
-        view={view}             // ✅ מקבל תצוגה מבחוץ (חודש/שבוע)
-        onView={onView}         // ✅ מעדכן תצוגה מבחוץ
-        views={['month', 'week', 'day']}
+        toolbar={false}
+        date={date}
+        onNavigate={onNavigate}
+        view={view}
+        onView={onView}
+        views={VIEWS}
+        selectable={!!onSelectSlot}
+        onSelectSlot={handleSelectSlot}
+        onSelectEvent={handleSelectEvent}
+        onEventDrop={onEventDrop}
+        onEventResize={onEventResize}
+        resizable
         step={15}
         timeslots={4}
         min={MIN_TIME}
         max={MAX_TIME}
         eventPropGetter={eventStyleGetter}
         messages={MESSAGES}
-        onSelectEvent={onSelectEvent} 
+        popup
+        popupOffset={10}
       />
     </div>
   );
