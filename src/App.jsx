@@ -20,37 +20,44 @@ import Services              from './components/dashboard/Services';
 import BookingRequests       from './components/dashboard/BookingRequests';
 import BookingPage           from './components/BookingPage';
 import Login                 from './components/Login';
-import { auth, db }          from './firebase'; 
+import OnboardingWizard      from './components/onboarding/OnboardingWizard'; // ✅ חדש
+import { auth, db }          from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot }   from 'firebase/firestore'; 
+import { doc, onSnapshot }   from 'firebase/firestore';
 import { useCustomers }      from './hooks/useCustomers';
-import { useAutoConfirmWorker } from './hooks/useAutoConfirmWorker'; 
+import { useAutoConfirmWorker } from './hooks/useAutoConfirmWorker';
 
 // ── AppShell ──────────────────────────────────────────────────────────────────
 
 function AppShell({ user, isDarkMode, toggleDarkMode }) {
-  // ✅ תוקן! ברירת המחדל למסך הבית (פרודקשן)
-  const [currentPage,   setCurrentPage]  = useState('dashboard'); 
+  const [currentPage,   setCurrentPage]  = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [navContext,    setNavContext]    = useState(null);
-  
-  // ✅ משתנה שיחזיק את מצב האישור האוטומטי
-  const [autoConfirm, setAutoConfirm] = useState(false);
+  const [autoConfirm,   setAutoConfirm]  = useState(false);
+
+  // ✅ חדש: האם להציג Onboarding
+  // null = טוען עדיין | true = הושלם | false = צריך להציג
+  const [onboardingDone, setOnboardingDone] = useState(null);
 
   const { customers } = useCustomers();
 
-  // ✅ האזנה בזמן אמת להגדרות של הקוסמטיקאית (כדי לדעת אם המתג דלוק או כבוי)
+  // ✅ האזנה להגדרות — כולל onboardingCompleted
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, 'userSettings', user.uid), (docSnap) => {
       if (docSnap.exists()) {
-        setAutoConfirm(docSnap.data().autoConfirm || false);
+        const data = docSnap.data();
+        setAutoConfirm(data.autoConfirm || false);
+        // ✅ אם השדה קיים וdone — מסתיר Wizard
+        setOnboardingDone(data.onboardingCompleted === true);
+      } else {
+        // ✅ מסמך לא קיים = משתמשת חדשה לגמרי
+        setOnboardingDone(false);
       }
     });
     return () => unsub();
   }, [user]);
 
-  // ✅ הפעלת פועל הרקע! אם המתג דלוק, הוא יעבד בקשות שקופצות
   useAutoConfirmWorker(autoConfirm);
 
   const navigateTo = (page, context = null) => {
@@ -95,11 +102,16 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
       <main className="mr-0 md:mr-64 pt-[73px]">
         {renderPage()}
       </main>
+
+      {/* ✅ Onboarding Wizard — מוצג רק למשתמשות חדשות */}
+      {onboardingDone === false && (
+        <OnboardingWizard onComplete={() => setOnboardingDone(true)} />
+      )}
     </div>
   );
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// ── App ─── (זהה לחלוטין לקוד הקיים שלך) ────────────────────────────────────
 
 function App() {
   const [user,        setUser]        = useState(null);
@@ -141,10 +153,7 @@ function App() {
     <BrowserRouter>
       <ToastProvider>
         <Routes>
-          {/* ✅ דף ציבורי — ללא auth */}
           <Route path="/book/:providerId" element={<BookingPage />} />
-
-          {/* ✅ כל שאר הנתיבים — דורשים התחברות */}
           <Route path="/*" element={
             !user ? (
               <Login />
