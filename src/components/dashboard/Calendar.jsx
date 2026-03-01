@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import gsap from 'gsap';
 
+// ✅ הוספנו את הייבוא של היומן הגרפי החדש שלנו!
+import CalendarView from './CalendarView';
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function toDateStr(dateObj) {
@@ -88,7 +91,6 @@ const EMPTY_FORM = {
 };
 
 // ── BlockTimeModal ─────────────────────────────────────────────────────────
-// ✅ מודל חסימת זמן — הפיצ'ר החדש
 function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -163,7 +165,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
       <div ref={modalRef}
         className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md my-4 overflow-hidden">
 
-        {/* כותרת */}
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700
                         flex justify-between items-center bg-orange-50 dark:bg-orange-900/20">
           <div className="flex items-center gap-2">
@@ -183,8 +184,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-
-          {/* סיבה מהירה */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
               סיבת החסימה
@@ -211,7 +210,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
             />
           </div>
 
-          {/* תאריך */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
               תאריך <span className="text-orange-500">*</span>
@@ -221,7 +219,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
               className={inputCls} />
           </div>
 
-          {/* כל היום */}
           <label className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/50
                              border border-gray-200 dark:border-gray-600 cursor-pointer
                              hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
@@ -239,7 +236,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
             </div>
           </label>
 
-          {/* שעות */}
           {!form.isAllDay && (
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -261,7 +257,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
             </div>
           )}
 
-          {/* תצוגה מקדימה */}
           <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl
                           border border-orange-200 dark:border-orange-800/50">
             <p className="text-xs text-orange-700 dark:text-orange-400 font-semibold mb-1">
@@ -275,7 +270,6 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
             </p>
           </div>
 
-          {/* כפתורים */}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={handleClose}
               className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
@@ -299,9 +293,7 @@ function BlockTimeModal({ isOpen, onClose, onSave, selectedDate }) {
 }
 
 // ── ServiceSelector ────────────────────────────────────────────────────────
-
 function ServiceSelector({ activeServices, selectedServices, onChange, startTime }) {
-
   const addService = (serviceId) => {
     if (!serviceId || serviceId === 'placeholder') return;
     if (serviceId === 'custom') { onChange(selectedServices, true); return; }
@@ -417,7 +409,6 @@ function ServiceSelector({ activeServices, selectedServices, onChange, startTime
 }
 
 // ── CustomerSelect ─────────────────────────────────────────────────────────
-
 function CustomerSelect({ customers, value, onChange }) {
   const [search,  setSearch] = useState('');
   const [isOpen,  setIsOpen] = useState(false);
@@ -484,7 +475,6 @@ function CustomerSelect({ customers, value, onChange }) {
 }
 
 // ── DeleteAppointmentModal ─────────────────────────────────────────────────
-
 function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel }) {
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -541,7 +531,6 @@ function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel 
 }
 
 // ── ChargeModal ────────────────────────────────────────────────────────────
-
 function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithoutCharge, onCancel }) {
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -611,7 +600,6 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
 }
 
 // ── AppointmentModal ───────────────────────────────────────────────────────
-
 function AppointmentModal({
   isOpen, onClose, onSave, selectedDate, initialData,
   businessHours, closedDays,
@@ -772,8 +760,6 @@ function AppointmentModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-
-          {/* לקוחה */}
           <div>
             {isAddingNewCustomer ? (
               <div className="bg-pink-50/60 dark:bg-[#e5007e]/10 p-4 rounded-xl
@@ -828,7 +814,6 @@ function AppointmentModal({
             )}
           </div>
 
-          {/* טיפולים */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
               <span className="flex items-center gap-1">
@@ -857,7 +842,6 @@ function AppointmentModal({
             )}
           </div>
 
-          {/* תאריך */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
               תאריך <span className="text-[#e5007e]">*</span>
@@ -866,7 +850,6 @@ function AppointmentModal({
               onChange={(e) => set('date', e.target.value)} className={inputCls} />
           </div>
 
-          {/* שעות */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
@@ -884,7 +867,6 @@ function AppointmentModal({
             </div>
           </div>
 
-          {/* התראת שעות פעילות */}
           {!businessHoursCheck.allowed && (
             <div className="flex items-start gap-2 p-3 rounded-xl
                             bg-amber-50 dark:bg-amber-900/20
@@ -899,7 +881,6 @@ function AppointmentModal({
             </div>
           )}
 
-          {/* משך */}
           {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (
             <p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 pr-1 flex items-center gap-1">
               <Clock className="w-3 h-3" />
@@ -914,7 +895,6 @@ function AppointmentModal({
             </p>
           )}
 
-          {/* סטטוס — עריכה בלבד */}
           {isEditing && (
             <div>
               <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">סטטוס</label>
@@ -926,7 +906,6 @@ function AppointmentModal({
             </div>
           )}
 
-          {/* כפתורים */}
           <div className="pt-2 flex gap-3">
             <button type="button" onClick={handleClose}
               className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
@@ -949,7 +928,6 @@ function AppointmentModal({
 }
 
 // ── AppointmentCard ────────────────────────────────────────────────────────
-
 function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
   const meta = STATUS_META[apt.status] ?? STATUS_META.scheduled;
   const isBlocked = apt.isBlocked || apt.status === 'blocked';
@@ -965,8 +943,6 @@ function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
         ? 'bg-gray-50 border-gray-200 dark:bg-gray-700/20 dark:border-gray-700 opacity-60'
         : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'
     }`}>
-
-      {/* שעה + צבע */}
       <div className="flex items-center sm:flex-col sm:items-center gap-3 sm:gap-1
                       sm:w-24 shrink-0 text-center
                       border-b sm:border-b-0 sm:border-l
@@ -984,7 +960,6 @@ function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
         </div>
       </div>
 
-      {/* פרטים */}
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -1018,7 +993,6 @@ function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
         )}
       </div>
 
-      {/* כפתורי פעולה */}
       <div className="flex items-center gap-1 shrink-0 self-end sm:self-center
                       border-t sm:border-t-0 border-gray-100 dark:border-gray-700
                       pt-3 sm:pt-0 w-full sm:w-auto justify-end">
@@ -1045,130 +1019,30 @@ function AppointmentCard({ apt, onEdit, onDelete, onCompleteClick }) {
   );
 }
 
-// ── WeekView ───────────────────────────────────────────────────────────────
-
-function WeekView({ weekDays, getByDate, onDayClick, selectedDate, onAddForDay,
-                    businessHours, closedDays }) {
-  const today = toDateStr(new Date());
-
-  return (
-    <div className="grid grid-cols-7 gap-1 md:gap-2">
-      {weekDays.map((day) => {
-        const dateStr  = toDateStr(day);
-        const apts     = getByDate(dateStr);
-        const isToday  = dateStr === today;
-        const isSel    = dateStr === selectedDate;
-        const dayIndex = day.getDay();
-        const dayCfg   = businessHours?.[dayIndex];
-        const isClosed = closedDays?.includes(dateStr) || (businessHours && (!dayCfg || !dayCfg.isActive));
-        const blockedCount = apts.filter(a => a.isBlocked || a.status === 'blocked').length;
-        const realApts     = apts.filter(a => !a.isBlocked && a.status !== 'blocked');
-
-        return (
-          <div key={dateStr} onClick={() => onDayClick(day)}
-            className={`min-h-[110px] md:min-h-[140px] rounded-xl border p-1.5 md:p-2
-                        cursor-pointer transition-all group relative ${
-              isSel
-                ? 'border-[#e5007e] bg-pink-50/50 dark:bg-[#e5007e]/10 shadow-sm'
-                : isToday
-                ? 'border-blue-300 bg-blue-50/40 dark:bg-blue-900/10 dark:border-blue-700/40'
-                : isClosed
-                ? 'border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/40'
-                : 'border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-pink-200 dark:hover:border-pink-800/40 hover:shadow-sm'
-            }`}>
-
-            {isClosed && !isSel && (
-              <div className="absolute top-1 left-1">
-                <span className="text-[8px] font-bold text-gray-400 dark:text-gray-600 leading-none">סגור</span>
-              </div>
-            )}
-
-            {/* ✅ תג חסימות */}
-            {blockedCount > 0 && (
-              <div className="absolute top-1 right-1">
-                <span className="text-[8px] font-bold text-orange-400 dark:text-orange-500">
-                  🔒{blockedCount}
-                </span>
-              </div>
-            )}
-
-            <div className="flex flex-col items-center mb-2">
-              <span className={`text-xs font-bold rounded-full w-6 h-6
-                                flex items-center justify-center transition-colors ${
-                isToday ? 'bg-blue-500 text-white'
-                : isSel  ? 'bg-[#e5007e] text-white'
-                : isClosed ? 'text-gray-400 dark:text-gray-600'
-                : 'text-gray-600 dark:text-gray-300'
-              }`}>
-                {day.getDate()}
-              </span>
-              {realApts.length > 0 && (
-                <span className="text-[9px] text-gray-400 mt-0.5">{realApts.length} תורים</span>
-              )}
-            </div>
-
-            <div className="space-y-0.5">
-              {realApts.slice(0, 3).map((apt) => (
-                <div key={apt.id}
-                  className="text-[10px] truncate px-1.5 py-0.5 rounded-md font-medium leading-tight"
-                  style={{
-                    backgroundColor: `${apt.color || '#e5007e'}18`,
-                    color:           apt.color || '#e5007e',
-                    borderRight:     `2px solid ${apt.color || '#e5007e'}`,
-                  }}>
-                  {apt.startTime} {apt.title}
-                </div>
-              ))}
-              {realApts.length > 3 && (
-                <div className="text-[9px] text-gray-400 text-center pt-0.5">+{realApts.length - 3} עוד</div>
-              )}
-            </div>
-
-            {realApts.length === 0 && !isClosed && (
-              <div className="flex items-center justify-center mt-2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onAddForDay(day); }}
-                  className="w-6 h-6 rounded-full border border-dashed border-gray-200
-                             dark:border-gray-600 text-gray-300 dark:text-gray-600
-                             group-hover:border-[#e5007e] group-hover:text-[#e5007e]
-                             transition-colors flex items-center justify-center">
-                  <Plus className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-
-            {isClosed && apts.length === 0 && (
-              <div className="flex items-center justify-center mt-3 opacity-30">
-                <div className="w-8 h-px bg-gray-400 dark:bg-gray-600 rotate-45 absolute" />
-                <div className="w-8 h-px bg-gray-400 dark:bg-gray-600 -rotate-45 absolute" />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Main: Calendar ─────────────────────────────────────────────────────────
 
 export default function Calendar() {
   const {
-    loading: apptLoading, error,
+    appointments = [], loading: apptLoading, error,
     getByDate, addAppointment, updateAppointment, deleteAppointment, stats,
   } = useAppointments();
+  
   const { loading: srvLoading }  = useServices();
   const { addTransaction }       = useTransactions('income');
   const { showToast }            = useToast();
   const { businessHours, closedDays, loading: settingsLoading } = useBusinessSettings();
 
   const [currentDate,       setCurrentDate]       = useState(new Date());
-  const [viewMode,          setViewMode]           = useState('day');
-  const [isModalOpen,       setIsModalOpen]        = useState(false);
-  const [isBlockModalOpen,  setIsBlockModalOpen]   = useState(false);  // ✅ חדש
-  const [editingApt,        setEditingApt]         = useState(null);
-  const [deletingApt,       setDeletingApt]        = useState(null);
-  const [chargingApt,       setChargingApt]        = useState(null);
+  
+  // ✅ הנה שני ה-States ששולטים בתצוגות שלנו!
+  const [viewMode,          setViewMode]          = useState('grid'); // 'grid' או 'day'
+  const [gridMode,          setGridMode]          = useState('week'); // 'month', 'week', 'day' בתוך היומן הגרפי
+
+  const [isModalOpen,       setIsModalOpen]       = useState(false);
+  const [isBlockModalOpen,  setIsBlockModalOpen]  = useState(false);
+  const [editingApt,        setEditingApt]        = useState(null);
+  const [deletingApt,       setDeletingApt]       = useState(null);
+  const [chargingApt,       setChargingApt]       = useState(null);
   const listRef = useRef(null);
 
   const loading = apptLoading || srvLoading;
@@ -1197,9 +1071,16 @@ export default function Calendar() {
     );
   }, [dateString, dailyAppointments.length, viewMode]);
 
+  // ✅ עדכנו את פונקציית הניווט (חצים) כך שתתאים ליומן החדש
   const navigate = (delta) => {
     const d = new Date(currentDate);
-    viewMode === 'day' ? d.setDate(d.getDate() + delta) : d.setDate(d.getDate() + delta * 7);
+    if (viewMode === 'grid') {
+        if (gridMode === 'month') d.setMonth(d.getMonth() + delta);
+        else if (gridMode === 'week') d.setDate(d.getDate() + delta * 7);
+        else d.setDate(d.getDate() + delta);
+    } else {
+        viewMode === 'day' ? d.setDate(d.getDate() + delta) : d.setDate(d.getDate() + delta * 7);
+    }
     setCurrentDate(d);
   };
 
@@ -1220,7 +1101,6 @@ export default function Calendar() {
     }
   };
 
-  // ✅ שמירת חסימת זמן
   const handleSaveBlock = async (data) => {
     try {
       await addAppointment(data);
@@ -1278,8 +1158,13 @@ export default function Calendar() {
   };
 
   const openAdd        = ()    => { setEditingApt(null); setIsModalOpen(true); };
-  const openAddForDay  = (day) => { setCurrentDate(day); setEditingApt(null); setIsModalOpen(true); };
-  const openEdit       = (apt) => { setEditingApt(apt);  setIsModalOpen(true); };
+  
+  const openEdit       = (apt) => { 
+    if (apt.isBlocked || apt.status === 'blocked') return;
+    setEditingApt(apt);  
+    setIsModalOpen(true); 
+  };
+  
   const handleModalClose = ()  => { setIsModalOpen(false); setEditingApt(null); };
 
   if (loading) return (
@@ -1291,7 +1176,6 @@ export default function Calendar() {
   return (
     <div className="p-4 md:p-8 space-y-6" dir="rtl">
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
           { label: 'מתוכננים', value: stats.scheduled, cls: 'text-blue-500'  },
@@ -1307,12 +1191,10 @@ export default function Calendar() {
         ))}
       </div>
 
-      {/* Navigation + כפתורים */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4
                       bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm
                       border border-gray-100 dark:border-gray-700">
 
-        {/* ✅ כפתורי פעולה ראשיים */}
         <div className="flex gap-2 w-full sm:w-auto">
           <button onClick={openAdd}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2
@@ -1334,7 +1216,6 @@ export default function Calendar() {
           </button>
         </div>
 
-        {/* ניווט תאריך */}
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)}
             className="p-2 text-gray-500 hover:text-[#e5007e] hover:bg-pink-50
@@ -1349,8 +1230,10 @@ export default function Calendar() {
                               group-hover:text-[#e5007e] transition-colors">
                 <CalendarIcon className="w-5 h-5 text-[#e5007e]" />
                 <h2 className="text-base font-bold">
-                  {viewMode === 'day'
+                  {viewMode === 'day' || gridMode === 'day'
                     ? currentDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })
+                    : gridMode === 'month'
+                    ? currentDate.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
                     : `${weekDays[0].toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' })}`
                   }
                 </h2>
@@ -1392,8 +1275,9 @@ export default function Calendar() {
                        hover:bg-pink-100 dark:hover:bg-[#e5007e]/20 transition-colors">
             היום
           </button>
+          
           <div className="flex bg-gray-100 dark:bg-gray-700 rounded-xl p-1 gap-1">
-            <button onClick={() => setViewMode('day')} title="תצוגה יומית"
+            <button onClick={() => setViewMode('day')} title="רשימה יומית"
               className={`p-2 rounded-lg transition-colors ${
                 viewMode === 'day'
                   ? 'bg-white dark:bg-gray-600 text-[#e5007e] shadow-sm'
@@ -1401,9 +1285,9 @@ export default function Calendar() {
               }`}>
               <LayoutList className="w-4 h-4" />
             </button>
-            <button onClick={() => setViewMode('week')} title="תצוגה שבועית"
+            <button onClick={() => setViewMode('grid')} title="יומן גרפי"
               className={`p-2 rounded-lg transition-colors ${
-                viewMode === 'week'
+                viewMode === 'grid'
                   ? 'bg-white dark:bg-gray-600 text-[#e5007e] shadow-sm'
                   : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
               }`}>
@@ -1419,55 +1303,25 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* באנר יום סגור */}
-      {viewMode === 'day' && todayBusinessStatus?.isClosed && (
-        <div className="flex items-center gap-3 p-3 rounded-xl
-                        bg-amber-50 dark:bg-amber-900/20
-                        border border-amber-200 dark:border-amber-700/50">
-          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            יום {HE_DAYS[currentDate.getDay()]} מוגדר כיום סגור — ניתן לקבוע תורים בכל זאת
-          </p>
-          <button onClick={() => setIsModalOpen(true)}
-            className="mr-auto text-xs text-amber-600 dark:text-amber-400
-                       font-semibold underline hover:no-underline transition-all">
-            + קבעי תור
-          </button>
-        </div>
+      {/* ✅ היומן הגרפי המעודכן שלנו! מחובר עכשיו לכפתורים */}
+      {viewMode === 'grid' && (
+        <CalendarView 
+          appointments={appointments} 
+          onSelectEvent={(e) => openEdit(e.resource)} 
+          date={currentDate}                          // מחבר את התאריך
+          onNavigate={(newDate) => setCurrentDate(newDate)} // כפתורי הבא/קודם
+          view={gridMode}                             // חודש/שבוע/יום
+          onView={(newView) => setGridMode(newView)}  // לחיצה על כפתורי התצוגה
+        />
       )}
 
-      {/* תצוגה שבועית */}
-      {viewMode === 'week' && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm
-                        border border-gray-100 dark:border-gray-700">
-          <div className="grid grid-cols-7 gap-1 md:gap-2 mb-3">
-            {weekDays.map((day) => (
-              <div key={day.toISOString()}
-                className="text-center text-[11px] text-gray-400 dark:text-gray-500 font-semibold py-1">
-                {HE_DAYS_SHORT[day.getDay()]}
-              </div>
-            ))}
-          </div>
-          <WeekView
-            weekDays={weekDays}
-            getByDate={getByDate}
-            onDayClick={(day) => { setCurrentDate(day); setViewMode('day'); }}
-            selectedDate={dateString}
-            onAddForDay={openAddForDay}
-            businessHours={businessHours}
-            closedDays={closedDays}
-          />
-        </div>
-      )}
-
-      {/* תצוגה יומית */}
+      {/* תצוגה יומית רשימה */}
       {viewMode === 'day' && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 md:p-6 shadow-sm
                         border border-gray-100 dark:border-gray-700 min-h-[400px]">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-bold text-gray-800 dark:text-white">תורים ליום זה</h3>
             <div className="flex items-center gap-2">
-              {/* ✅ ספירת חסימות ביום */}
               {dailyAppointments.filter(a => a.isBlocked || a.status === 'blocked').length > 0 && (
                 <span className="text-xs text-orange-500 dark:text-orange-400
                                  bg-orange-50 dark:bg-orange-900/20
@@ -1528,7 +1382,6 @@ export default function Calendar() {
         closedDays={closedDays}
       />
 
-      {/* ✅ BlockTimeModal — חדש */}
       <BlockTimeModal
         isOpen={isBlockModalOpen}
         onClose={() => setIsBlockModalOpen(false)}
