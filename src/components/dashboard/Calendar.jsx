@@ -478,6 +478,48 @@ export default function Calendar() {
     };
   }, [businessHours]);
 
+  // ✅ אירועי "יום סגור" וירטואליים — חוסמים ימים לא פעילים לפי הגדרות העסק
+  const closedDaysEvents = useMemo(() => {
+    if (!businessHours) return [];
+
+    // בונים רשימת תאריכים לפי התצוגה הנוכחית
+    let datesInView = [];
+    if (gridMode === 'week') {
+      datesInView = weekDays;
+    } else if (gridMode === 'day') {
+      datesInView = [currentDate];
+    } else {
+      // חודש — 6 שבועות (42 יום) שהיומן מציג
+      const firstOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+      const viewStart    = getWeekStart(firstOfMonth);
+      for (let i = 0; i < 42; i++) {
+        const d = new Date(viewStart);
+        d.setDate(d.getDate() + i);
+        datesInView.push(d);
+      }
+    }
+
+    const events = [];
+    for (const dateObj of datesInView) {
+      const dayIndex = dateObj.getDay(); // 0=ראשון ... 6=שבת
+      const cfg = businessHours[dayIndex];
+      if (!cfg || !cfg.isActive) {
+        const y  = dateObj.getFullYear();
+        const mo = dateObj.getMonth();
+        const d  = dateObj.getDate();
+        events.push({
+          id:        `closed-${toDateStr(dateObj)}`,
+          title:     'יום סגור',
+          start:     new Date(y, mo, d, 0, 0),
+          end:       new Date(y, mo, d, 23, 59),
+          isBlocked: true,
+          resource:  { status: 'blocked' },
+        });
+      }
+    }
+    return events;
+  }, [businessHours, gridMode, weekDays, currentDate]);
+
   const navigate = (delta) => {
     const d = new Date(currentDate);
     if (gridMode === 'month')     d.setMonth(d.getMonth() + delta);
@@ -535,7 +577,20 @@ export default function Calendar() {
   };
 
   const handleSelectSlot = ({ start, end }) => {
-    const date = toDateStr(start);
+    const date     = toDateStr(start);
+    const dayIndex = start.getDay();
+
+    // ✅ guard — מונע פתיחת מודל ביום סגור או יום חופשה
+    const cfg = businessHours?.[dayIndex];
+    if (!cfg || !cfg.isActive) {
+      showToast('לא ניתן לקבוע תור ביום סגור', 'error');
+      return;
+    }
+    if (closedDays?.includes(date)) {
+      showToast('לא ניתן לקבוע תור ביום חופשה', 'error');
+      return;
+    }
+
     let startTime = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
     let endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
     if (startTime === '00:00' && endTime === '00:00') { startTime = '10:00'; endTime = '11:00'; }
@@ -653,13 +708,15 @@ export default function Calendar() {
 
       {/* ✅ מועברים minTime ו-maxTime דינמיים */}
       <CalendarView
-        appointments={appointments}
+        appointments={[...appointments, ...closedDaysEvents]}
         onSelectEvent={(e) => openEdit(e.resource)}
         onSelectSlot={handleSelectSlot}
         onEventDrop={handleEventDrop}
         onEventResize={handleEventResize}
         minTime={calendarBounds.minTime}
         maxTime={calendarBounds.maxTime}
+        businessHours={businessHours}
+        closedDays={closedDays}
         date={currentDate}
         onNavigate={(newDate) => setCurrentDate(newDate)}
         view={gridMode}

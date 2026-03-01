@@ -7,6 +7,14 @@ import { he } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 
+// ✅ helper פנימי לקבלת מחרוזת תאריך YYYY-MM-DD
+const toDateStrLocal = (dateObj) => {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const locales = { he };
 const startOfWeekFn = (date) => startOfWeek(date, { weekStartsOn: 0 });
 const localizer = dateFnsLocalizer({
@@ -23,8 +31,9 @@ const DnDCalendar = withDnD(Calendar);
 
 const eventStyleGetter = (event) => {
   const isBlocked = event.isBlocked;
+  // ✅ ימים סגורים — אפור כדי להשתלב עם הרקע; חסימות רגילות — כתום
   const backgroundColor = isBlocked
-    ? '#f97316'
+    ? (event.title === 'יום סגור' ? '#9ca3af' : '#f97316')
     : (event.resource?.color || '#e5007e');
 
   return {
@@ -75,8 +84,10 @@ export default function CalendarView({
   onSelectSlot,
   onEventDrop,
   onEventResize,
-  minTime,       // ✅ prop חדש
-  maxTime,       // ✅ prop חדש
+  minTime,
+  maxTime,
+  businessHours, // ✅ לצביעת ימים סגורים
+  closedDays,    // ✅ לצביעת ימי חופשה
   date,
   onNavigate,
   view,
@@ -110,6 +121,31 @@ export default function CalendarView({
   const handleSelectSlot = useCallback((slotInfo) => {
     onSelectSlot?.(slotInfo);
   }, [onSelectSlot]);
+
+  // ✅ בדיקה אם יום הוא סגור (לפי הגדרות העסק או יום חופשה)
+  const isDayClosed = useCallback((dateObj) => {
+    if (!dateObj) return false;
+    const cfg = businessHours?.[dateObj.getDay()];
+    if (!cfg || !cfg.isActive) return true;
+    if (closedDays?.includes(toDateStrLocal(dateObj))) return true;
+    return false;
+  }, [businessHours, closedDays]);
+
+  // ✅ צביעת רקע עמודות בתצוגת חודש/שבוע
+  const customDayPropGetter = useCallback((dateObj) => {
+    if (isDayClosed(dateObj)) {
+      return { className: '!bg-gray-100 dark:!bg-gray-800/80 cursor-not-allowed' };
+    }
+    return {};
+  }, [isDayClosed]);
+
+  // ✅ צביעת חריצי זמן בתצוגת שבוע/יום
+  const customSlotPropGetter = useCallback((dateObj) => {
+    if (isDayClosed(dateObj)) {
+      return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
+    }
+    return {};
+  }, [isDayClosed]);
 
   return (
     <div
@@ -161,6 +197,8 @@ export default function CalendarView({
         onEventDrop={onEventDrop}
         onEventResize={onEventResize}
         resizable
+        dayPropGetter={customDayPropGetter}
+        slotPropGetter={customSlotPropGetter}
         step={15}
         timeslots={4}
         min={minTime || DEFAULT_MIN}
