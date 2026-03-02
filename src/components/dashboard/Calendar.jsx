@@ -1,6 +1,7 @@
 // src/components/dashboard/Calendar.jsx
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { db } from '../../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAppointments }      from '../../hooks/useAppointments';
 import { useCustomers }         from '../../hooks/useCustomers';
 import { useServices }          from '../../hooks/useServices';
@@ -231,15 +232,46 @@ function CustomerSelect({ customers, value, onChange }) {
 }
 
 // ── DeleteAppointmentModal ─────────────────────────────────────────────────
+// ✅ FIX 6C: reason state + textarea + passes reason to onConfirm
 function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel }) {
-  const overlayRef = useRef(null); const modalRef = useRef(null);
-  useEffect(() => { if (!isOpen || !overlayRef.current || !modalRef.current) return; gsap.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.2 }); gsap.fromTo(modalRef.current, { opacity: 0, scale: 0.92, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.25, ease: 'back.out(1.4)' }); }, [isOpen]);
+  const overlayRef = useRef(null);
+  const modalRef   = useRef(null);
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !overlayRef.current || !modalRef.current) return;
+    gsap.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.2 });
+    gsap.fromTo(modalRef.current, { opacity: 0, scale: 0.92, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.25, ease: 'back.out(1.4)' });
+  }, [isOpen]);
+
+  useEffect(() => { if (isOpen) setReason(''); }, [isOpen]);
+
   if (!isOpen) return null;
   return (
     <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === overlayRef.current) onCancel(); }}>
       <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6" dir="rtl">
-        <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0"><AlertCircle className="w-5 h-5 text-red-500" /></div><div><h3 className="font-bold text-gray-800 dark:text-gray-100">מחיקת תור</h3><p className="text-sm text-gray-500 dark:text-gray-400">למחוק את התור <span className="font-semibold text-gray-700 dark:text-gray-200">&quot;{appointmentTitle}&quot;</span>? פעולה זו אינה ניתנת לביטול.</p></div></div>
-        <div className="flex gap-3 mt-5"><button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button><button onClick={onConfirm} className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors">מחק תור</button></div>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-800 dark:text-gray-100">מחיקת תור</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">למחוק את התור <span className="font-semibold text-gray-700 dark:text-gray-200">&quot;{appointmentTitle}&quot;</span>? פעולה זו אינה ניתנת לביטול.</p>
+          </div>
+        </div>
+        {/* ✅ FIX 6C: cancellation reason textarea */}
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="סיבת ביטול/מחיקה (תישמר בכרטיס לקוח)..."
+          className="w-full mt-3 p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 dark:text-white text-sm resize-none"
+          rows={2}
+        />
+        <div className="flex gap-3 mt-5">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button>
+          {/* ✅ FIX 6C: pass reason to onConfirm */}
+          <button onClick={() => onConfirm(reason)} className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors">מחק תור</button>
+        </div>
       </div>
     </div>
   );
@@ -261,12 +293,11 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
 }
 
 // ── AppointmentModal ───────────────────────────────────────────────────────
-function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, businessHours, closedDays }) {
+// ✅ FIX 4: receives onDeleteClick prop for the delete button in header
+function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, businessHours, closedDays, setCurrentPage, onCompleteClick, onDeleteClick }) {
   const { customers, addCustomer } = useCustomers();
   const { activeServices }         = useServices();
   const { showToast }              = useToast();
-  // ✅ 6. useNavigate לניווט לפרופיל לקוח
-  const navigate                   = useNavigate();
 
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -290,13 +321,21 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     if (!isOpen) return;
     if (initialData && initialData.id) {
       let loadedServices = initialData.services && initialData.services.length > 0 ? initialData.services : [];
+      // ✅ FIX 3: strictly parse numbers to prevent NaN in ServiceSelector
+      loadedServices = loadedServices.map(s => ({
+        ...s,
+        qty:      Number(s.qty)      || 1,
+        price:    Number(s.price)    || 0,
+        duration: Number(s.duration) || 0,
+        color:    s.color            || '#e5007e',
+      }));
       if (loadedServices.length === 0 && (initialData.serviceId || initialData.treatmentId)) {
         loadedServices = [{
           serviceId: initialData.serviceId || initialData.treatmentId || 'custom',
           title:     initialData.serviceTitle || initialData.treatmentName || initialData.title || 'טיפול',
-          price:     initialData.price || 0,
-          color:     initialData.color || '#e5007e',
-          duration:  initialData.duration || 60,
+          price:     Number(initialData.price)    || 0,
+          color:     initialData.color            || '#e5007e',
+          duration:  Number(initialData.duration) || 60,
           qty:       1,
         }];
       }
@@ -361,12 +400,10 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     });
   };
 
-  // ✅ 1. תיקון ולידציה — title מיוצר דינמית אם חסר
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
 
-    // ✅ בדיקה מתוקנת: האם יש שירותים תקינים?
     const hasValidServices =
       formData.services.length > 0 ||
       (showCustomInput && customTitle.trim() !== '');
@@ -379,13 +416,11 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     setSaving(true);
     const customer = customers.find((c) => c.id === formData.customerId);
 
-    // ✅ יצירת title דינמי אם חסר
     let finalTitle = showCustomInput
       ? customTitle.trim()
       : formData.title.trim();
 
     if (!finalTitle) {
-      // fallback: generate from services or date
       if (formData.services.length > 0) {
         finalTitle = formData.services
           .map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title)
@@ -398,9 +433,9 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     try {
       await onSave({
         ...formData,
-        title:        finalTitle,
-        price:        Number(formData.price) || 0,
-        customerName: customer?.name  ?? 'לקוחה לא ידועה',
+        title:         finalTitle,
+        price:         Number(formData.price) || 0,
+        customerName:  customer?.name  ?? 'לקוחה לא ידועה',
         customerPhone: customer?.phone ?? '',
       });
       handleClose();
@@ -412,13 +447,10 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     }
   };
 
-  // ✅ 6. ניווט לפרופיל הלקוח
   const handleNavigateToCustomer = () => {
-    if (!formData.customerId) return;
+    if (!formData.customerId || !setCurrentPage) return;
     handleClose();
-    navigate('/dashboard/customers', {
-      state: { selectedCustomerId: formData.customerId },
-    });
+    setCurrentPage('customers', { id: formData.customerId });
   };
 
   if (!isOpen) return null;
@@ -434,10 +466,23 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10 rounded-t-2xl">
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">{isEditing ? 'עריכת תור ✏️' : 'תור חדש ✨'}</h2>
-          <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#e5007e] rounded-full hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"><X size={20} /></button>
+          <div className="flex items-center gap-1">
+            {/* ✅ FIX 4: Delete button in header, only when editing */}
+            {isEditing && (
+              <button
+                type="button"
+                onClick={() => { onDeleteClick(formData); handleClose(); }}
+                title="מחק תור"
+                className="p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#e5007e] rounded-full hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"><X size={20} /></button>
+          </div>
         </div>
 
-        {/* ✅ 6. כפתור "פתח כרטיס לקוח" — רק בעריכה וכשיש לקוחה נבחרת */}
+        {/* כפתור "פתח כרטיס לקוח" — רק בעריכה וכשיש לקוחה נבחרת */}
         {isEditing && formData.customerId && (
           <div className="px-6 pt-4 pb-0">
             <button
@@ -498,7 +543,23 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
               className={`${inputCls} resize-none`}
             />
           </div>
-          <div className="pt-2 flex gap-3"><button type="button" onClick={handleClose} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button><button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 rounded-xl bg-[#e5007e] hover:bg-[#b30062] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/20">{saving ? 'שומר...' : isEditing ? '💾 שמור שינויים' : '✅ קביעת תור'}</button></div>
+
+          {/* Checkout button + Cancel/Save buttons */}
+          <div className="pt-2 flex flex-col gap-3">
+            {isEditing && formData.status !== 'completed' && (
+              <button
+                type="button"
+                onClick={() => { onCompleteClick(formData); handleClose(); }}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
+              >
+                <CheckCircle className="w-5 h-5" /> סיום וקבלת תשלום
+              </button>
+            )}
+            <div className="flex gap-3 w-full">
+              <button type="button" onClick={handleClose} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button>
+              <button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 rounded-xl bg-[#e5007e] hover:bg-[#b30062] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/20">{saving ? 'שומר...' : isEditing ? '💾 שמור שינויים' : '✅ קביעת תור'}</button>
+            </div>
+          </div>
         </form>
       </div>
     </div>
@@ -506,7 +567,7 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
 }
 
 // ── Main: Calendar ─────────────────────────────────────────────────────────
-export default function Calendar() {
+export default function Calendar({ setCurrentPage }) {
   const { appointments = [], loading: apptLoading, error, addAppointment, updateAppointment, deleteAppointment, stats } = useAppointments();
   const { loading: srvLoading }  = useServices();
   const { addTransaction }       = useTransactions('income');
@@ -527,7 +588,6 @@ export default function Calendar() {
   const weekStart  = useMemo(() => getWeekStart(currentDate), [currentDate]);
   const weekDays   = useMemo(() => getWeekDays(weekStart),    [weekStart]);
 
-  // ✅ חישוב דינמי של גבולות היומן לפי שעות העסק
   const calendarBounds = useMemo(() => {
     const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
     const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
@@ -562,7 +622,6 @@ export default function Calendar() {
     };
   }, [businessHours]);
 
-  // ✅ אירועי "יום סגור" וירטואליים
   const closedDaysEvents = useMemo(() => {
     if (!businessHours) return [];
 
@@ -629,10 +688,27 @@ export default function Calendar() {
     catch (err) { showToast(err.message || 'שגיאה בחסימה', 'error'); throw err; }
   };
 
-  const handleDeleteConfirm = async () => {
+  // ✅ FIX 6C: accept reason, write cancellation note with time to CRM before deleting
+  const handleDeleteConfirm = async (reason) => {
     if (!deletingApt) return;
-    try { await deleteAppointment(deletingApt.id); showToast('התור נמחק', 'success'); }
-    catch { showToast('שגיאה במחיקה', 'error'); } finally { setDeletingApt(null); }
+    try {
+      if (deletingApt.customerId && deletingApt.customerId !== '__blocked__') {
+        await addDoc(collection(db, `customers/${deletingApt.customerId}/treatments`), {
+          title:     `תור בוטל: ${deletingApt.title}`,
+          price:     0,
+          notes:     reason ? `סיבת ביטול: ${reason}` : 'התור נמחק מהיומן ללא סיבה.',
+          date:      toDateStr(new Date()),
+          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: serverTimestamp(),
+        });
+      }
+      await deleteAppointment(deletingApt.id);
+      showToast('התור נמחק', 'success');
+    } catch {
+      showToast('שגיאה במחיקה', 'error');
+    } finally {
+      setDeletingApt(null);
+    }
   };
 
   const handleStatusChange = async (id, newStatus) => {
@@ -645,10 +721,23 @@ export default function Calendar() {
     else handleStatusChange(apt.id, 'completed');
   };
 
+  // ✅ FIX 6A: write payment note with time to CRM on confirm charge
   const handleConfirmCharge = async (apt) => {
     try {
       await addTransaction({ amount: Number(apt.price), category: apt.services?.[0]?.title ?? 'טיפולים', source: apt.customerName || 'לקוחה מהיומן', date: toDateStr(new Date()), notes: `תור אוטומטי: ${apt.title}` });
-      await updateAppointment(apt.id, { status: 'completed' }); showToast(`₪${apt.price} נוספו להכנסות 💰`, 'success');
+      await updateAppointment(apt.id, { status: 'completed' });
+      // ✅ FIX 6A: CRM timeline note for payment
+      if (apt.customerId && apt.customerId !== '__blocked__') {
+        await addDoc(collection(db, `customers/${apt.customerId}/treatments`), {
+          title:     'תשלום התקבל 💰',
+          price:     apt.price,
+          notes:     'תשלום עבור ' + apt.title,
+          date:      toDateStr(new Date()),
+          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: serverTimestamp(),
+        });
+      }
+      showToast(`₪${apt.price} נוספו להכנסות 💰`, 'success');
     } catch (err) { console.error('[ChargeModal]', err); showToast('שגיאה בשמירת ההכנסה', 'error'); } finally { setChargingApt(null); }
   };
 
@@ -679,6 +768,7 @@ export default function Calendar() {
     setIsModalOpen(true);
   };
 
+  // ✅ FIX 6B: write reschedule note with time to CRM after drop
   const handleEventDrop = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date = toDateStr(start);
@@ -690,6 +780,18 @@ export default function Calendar() {
     }
     try {
       await updateAppointment(event.id, { date, startTime, endTime });
+      // ✅ FIX 6B: CRM note for rescheduled appointment
+      const customerId = event.resource?.customerId;
+      if (customerId && customerId !== '__blocked__') {
+        await addDoc(collection(db, `customers/${customerId}/treatments`), {
+          title:     'שינוי מועד תור 🔄',
+          price:     0,
+          notes:     'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
+          date:      toDateStr(new Date()),
+          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: serverTimestamp(),
+        });
+      }
       showToast('התור הוזז בהצלחה ✓', 'success');
     } catch (err) {
       console.error('[DnD Drop]', err);
@@ -697,6 +799,7 @@ export default function Calendar() {
     }
   }, [updateAppointment, showToast]);
 
+  // ✅ FIX 6B: write reschedule note with time to CRM after resize
   const handleEventResize = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date      = toDateStr(start);
@@ -704,6 +807,18 @@ export default function Calendar() {
     const endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
     try {
       await updateAppointment(event.id, { date, startTime, endTime });
+      // ✅ FIX 6B: CRM note for resized appointment
+      const customerId = event.resource?.customerId;
+      if (customerId && customerId !== '__blocked__') {
+        await addDoc(collection(db, `customers/${customerId}/treatments`), {
+          title:     'שינוי מועד תור 🔄',
+          price:     0,
+          notes:     'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
+          date:      toDateStr(new Date()),
+          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: serverTimestamp(),
+        });
+      }
       showToast('זמן התור עודכן בהצלחה ✓', 'success');
     } catch (err) {
       console.error('[DnD Resize]', err);
@@ -803,7 +918,19 @@ export default function Calendar() {
         onView={(newView) => setGridMode(newView)}
       />
 
-      <AppointmentModal isOpen={isModalOpen} onClose={handleModalClose} onSave={handleSave} selectedDate={dateString} initialData={editingApt} businessHours={businessHours} closedDays={closedDays} />
+      {/* ✅ FIX 4: pass onDeleteClick to AppointmentModal */}
+      <AppointmentModal
+        isOpen={isModalOpen}
+        onClose={handleModalClose}
+        onSave={handleSave}
+        selectedDate={dateString}
+        initialData={editingApt}
+        businessHours={businessHours}
+        closedDays={closedDays}
+        setCurrentPage={setCurrentPage}
+        onCompleteClick={handleCompleteClick}
+        onDeleteClick={(apt) => setDeletingApt(apt)}
+      />
       <BlockTimeModal isOpen={isBlockModalOpen} onClose={() => setIsBlockModalOpen(false)} onSave={handleSaveBlock} selectedDate={dateString} />
       <DeleteAppointmentModal isOpen={!!deletingApt} appointmentTitle={deletingApt?.title ?? ''} onConfirm={handleDeleteConfirm} onCancel={() => setDeletingApt(null)} />
       <ChargeModal isOpen={!!chargingApt} appointment={chargingApt} onConfirmWithCharge={handleConfirmCharge} onConfirmWithoutCharge={(apt) => { handleStatusChange(apt.id, 'completed'); setChargingApt(null); }} onCancel={() => setChargingApt(null)} />

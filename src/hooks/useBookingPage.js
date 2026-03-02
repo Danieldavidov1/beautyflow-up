@@ -30,14 +30,33 @@ export function toDateStr(dateObj) {
   return `${y}-${m}-${d}`;
 }
 
-// ── וולידציה לפני שליחה ───────────────────────────────────────────────────────
+// ── 3. וולידציה מעודכנת לתמיכה ב-multi-service (תואמת ל-Firebase) ───
 function validateBookingPayload(data) {
-  if (!data.serviceId  || typeof data.serviceId  !== 'string') throw new Error('שירות לא תקין');
-  if (!data.date       || data.date.length !== 10)              throw new Error('תאריך לא תקין');
-  if (!data.startTime  || data.startTime.length !== 5)          throw new Error('שעה לא תקינה');
-  if (!data.guestName  || data.guestName.trim().length < 2)     throw new Error('שם לא תקין');
-  if (!data.guestPhone || data.guestPhone.trim().length < 9)    throw new Error('טלפון לא תקין');
-  if (data.notes && data.notes.length > 300)                    throw new Error('הערות ארוכות מדי');
+  const title = data.serviceTitle || data.title;
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    throw new Error('יש לבחור לפחות טיפול אחד');
+  }
+  
+  const duration = data.serviceDuration || data.duration;
+  if (!duration || Number(duration) <= 0) {
+    throw new Error('משך הטיפול לא תקין');
+  }
+  
+  if (!data.date || data.date.length !== 10) {
+    throw new Error('תאריך לא תקין');
+  }
+  if (!data.startTime || data.startTime.length !== 5) {
+    throw new Error('שעה לא תקינה');
+  }
+  if (!data.guestName || data.guestName.trim().length < 2) {
+    throw new Error('שם לא תקין');
+  }
+  if (!data.guestPhone || data.guestPhone.trim().length < 9) {
+    throw new Error('טלפון לא תקין');
+  }
+  if (data.notes && data.notes.length > 300) {
+    throw new Error('הערות ארוכות מדי');
+  }
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -155,9 +174,7 @@ export function useBookingPage(providerId) {
     return slots;
   }, [providerSettings, bookedSlots]);
 
-  // ── 4. שליחת בקשה — תמיד ל-bookingRequests ─────────────────────
-  // ✅ תוקן: גולש אנונימי לא יכול לכתוב ל-appointments/customers
-  // האישור האוטומטי מטופל בצד הניהול (useAutoConfirmWorker)
+  // ── 4. שליחת בקשה ───────────────────────────────────────────────
   const submitBookingRequest = useCallback(async (bookingData) => {
     if (!providerId) throw new Error('חסר מזהה עסק');
     if (submitting)  throw new Error('כבר בתהליך שליחה');

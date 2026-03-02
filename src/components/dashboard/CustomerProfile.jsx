@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import { useTreatments } from '../../hooks/useTreatments';
 import { useToast } from '../../context/ToastContext';
 import {
@@ -16,10 +16,13 @@ import gsap from 'gsap';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// ✅ FIX 3: include Hebrew weekday in formatted date
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
-  return new Date(+y, +m - 1, +d).toLocaleDateString('he-IL');
+  return new Date(+y, +m - 1, +d)
+    .toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric' })
+    .replace(',', '');
 }
 
 function sanitizePhone(raw = '') {
@@ -42,9 +45,11 @@ const STATUS_STYLES = {
   pending:    { label: 'ממתין',  cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
 };
 
-// ✅ EMPTY_TREATMENT ללא price, עם id אופציונלי לצורך עריכה
 const EMPTY_TREATMENT = {
-  title: '', date: new Date().toISOString().split('T')[0], notes: '',
+  title: '',
+  date:  new Date().toISOString().split('T')[0],
+  time:  new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+  notes: '',
 };
 
 // ── Hook: useCustomerAppointments ──────────────────────────────────────────
@@ -57,8 +62,9 @@ function useCustomerAppointments(customerId) {
 
     const q = query(
       collection(db, 'appointments'),
+      where('userId',     '==', auth.currentUser?.uid),
       where('customerId', '==', customerId),
-      orderBy('date', 'desc'),
+      orderBy('date',      'desc'),
       orderBy('startTime', 'desc')
     );
 
@@ -156,7 +162,6 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
 
 // ── CustomerProfile ────────────────────────────────────────────────────────
 export default function CustomerProfile({ customer, onBack, onEdit }) {
-  // ✅ 3. הוספת updateTreatment מה-hook
   const { treatments, loading: loadingTreatments, error, addTreatment, updateTreatment, deleteTreatment } =
     useTreatments(customer?.id);
   const { appointments, loading: loadingAppts } =
@@ -167,7 +172,6 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
   const [saving,            setSaving]            = useState(false);
   const [newTreatment,      setNewTreatment]      = useState(EMPTY_TREATMENT);
   const [deletingTreatment, setDeletingTreatment] = useState(null);
-  // ✅ 3. האם אנחנו במצב עריכה (יש id)
   const isEditingNote = !!newTreatment.id;
 
   const pageRef     = useRef(null);
@@ -176,8 +180,13 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
 
   // ── חישוב סטטיסטיקות ──────────────────────────────────────────────────
   const stats = useMemo(() => {
-    const treatmentsRevenue = treatments.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
-    const apptRevenue       = appointments
+    // ✅ FIX 1: exclude auto-generated payment notes from revenue to avoid double-count
+    // (payment notes are also counted via apptRevenue from completed appointments)
+    const treatmentsRevenue = treatments
+      .filter(t => !(t.title || '').includes('תשלום התקבל'))
+      .reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+
+    const apptRevenue = appointments
       .filter((a) => a.status === 'completed')
       .reduce((sum, a) => sum + (Number(a.price) || 0), 0);
 
@@ -233,25 +242,27 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
   const isFromWeb = customer.source === 'online_booking';
   const set       = (field) => (e) => setNewTreatment((p) => ({ ...p, [field]: e.target.value }));
 
-  // ✅ 3. פתיחת הטופס לעריכת הערה קיימת
   const handleEditNote = (note) => {
-    setNewTreatment({ id: note.id, title: note.title, date: note.date, notes: note.notes || '' });
+    setNewTreatment({
+      id:    note.id,
+      title: note.title,
+      date:  note.date,
+      time:  note.time || new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+      notes: note.notes || '',
+    });
     setIsAdding(true);
   };
 
-  // ✅ 3. handleAddTreatment — קורא ל-updateTreatment אם יש id, אחרת addTreatment
   const handleAddTreatment = async (e) => {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
       if (isEditingNote) {
-        // עריכת הערה קיימת
         const { id, ...updateData } = newTreatment;
         await updateTreatment(id, updateData);
         showToast('הערה עודכנה בהצלחה ✓', 'success');
       } else {
-        // הוספת הערה חדשה
         await addTreatment(newTreatment);
         showToast('הערה נוספה בהצלחה ✓', 'success');
       }
@@ -497,7 +508,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               )}
             </div>
 
-            {/* ✅ 3. טופס הוספה / עריכת הערה ידנית */}
+            {/* Add/Edit form */}
             {isAdding && (
               <div ref={formRef} className="overflow-hidden">
                 <form onSubmit={handleAddTreatment}
@@ -505,7 +516,6 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                              border border-gray-100 dark:border-gray-600 space-y-3">
                   <div className="flex justify-between items-center mb-1">
                     <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">
-                      {/* ✅ כותרת דינמית לפי מצב עריכה/הוספה */}
                       {isEditingNote ? '✏️ עריכת הערה' : 'הוספת הערה ידנית'}
                     </h3>
                     <button type="button" onClick={handleCancelForm}
@@ -514,12 +524,18 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="text" required placeholder="כותרת ההערה"
-                      value={newTreatment.title} onChange={set('title')} className={inputCls} />
+                  <input type="text" required placeholder="כותרת ההערה"
+                    value={newTreatment.title} onChange={set('title')} className={inputCls} />
+
+                  <div className="grid grid-cols-2 gap-3">
                     <input type="date" required
                       value={newTreatment.date} onChange={set('date')} className={inputCls} />
+                    <input type="time" required
+                      value={newTreatment.time || ''}
+                      onChange={set('time')}
+                      className={inputCls} />
                   </div>
+
                   <textarea placeholder="תוכן ההערה (חומרים, תגובה, דגשים לפעם הבאה...)"
                     rows={3} value={newTreatment.notes} onChange={set('notes')}
                     className={`${inputCls} resize-none`} />
@@ -533,7 +549,6 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     <button type="submit" disabled={saving}
                       className="px-4 py-2 text-sm font-bold text-white bg-[#e5007e]
                                  hover:bg-[#b30062] rounded-lg disabled:opacity-50">
-                      {/* ✅ טקסט כפתור דינמי */}
                       {saving ? 'שומר...' : isEditingNote ? 'שמור שינויים' : 'שמור הערה'}
                     </button>
                   </div>
@@ -649,11 +664,16 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                               </h3>
                               <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                                 <FileText className="w-3 h-3" />
-                                הערה ידנית · {formatDate(item.date)}
+                                הערה ידנית · {formatDate(item.date)}{item.time ? ` · ${item.time}` : ''}
                               </p>
+                              {/* ✅ FIX 2: price badge on manual note cards */}
+                              {item.price > 0 && (
+                                <span className="text-xs font-bold text-[#e5007e] bg-pink-50 dark:bg-pink-900/20 px-2 py-1 rounded-md mt-2 inline-block">
+                                  סכום ששולם: ₪{item.price}
+                                </span>
+                              )}
                             </div>
-                            {/* ✅ 3. כפתורי Edit + Trash2 לצד הערות ידניות */}
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 shrink-0">
                               <button
                                 onClick={() => handleEditNote(item)}
                                 title="ערוך הערה"

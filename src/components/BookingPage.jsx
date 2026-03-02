@@ -7,7 +7,7 @@ import {
 } from '../hooks/useBookingPage';
 import {
   Calendar, Clock, User, Phone, CheckCircle,
-  ChevronRight, Store, FileText, AlertCircle, Sparkles, Shield,
+  ChevronRight, Store, FileText, AlertCircle, Sparkles, Shield, Check,
 } from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ export default function BookingPage() {
     submitBookingRequest,
   } = useBookingPage(providerId);
 
-  const [selectedService,  setSelectedService]  = useState(null);
+  const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate,     setSelectedDate]     = useState(toDateStr(new Date()));
   const [selectedTime,     setSelectedTime]     = useState(null);
   const [guestName,        setGuestName]        = useState('');
@@ -109,29 +109,47 @@ export default function BookingPage() {
   const [availableSlots,   setAvailableSlots]   = useState([]);
   const [submitError,      setSubmitError]      = useState(null);
   const [phoneError,       setPhoneError]       = useState('');
-
-  // ✅ UX: האם הטלפון נוגע (touched) — מציג שגיאה רק אחרי שהמשתמש הקליד
-  const [phoneTouched, setPhoneTouched] = useState(false);
+  const [phoneTouched,     setPhoneTouched]     = useState(false);
 
   const datesList = useMemo(() => getDates(21), []);
 
+  const totalDuration = useMemo(
+    () => selectedServices.reduce((sum, s) => sum + Number(s.duration), 0),
+    [selectedServices]
+  );
+  const totalPrice = useMemo(
+    () => selectedServices.reduce((sum, s) => sum + Number(s.price), 0),
+    [selectedServices]
+  );
+  const combinedTitle = useMemo(
+    () => selectedServices.map((s) => s.title).join(' + '),
+    [selectedServices]
+  );
+
+  const toggleService = (srv) => {
+    setSelectedServices((prev) => {
+      const exists = prev.find((s) => s.id === srv.id);
+      if (exists) return prev.filter((s) => s.id !== srv.id);
+      return [...prev, srv];
+    });
+  };
+
   // ── שליפת slots בשינוי תאריך ────────────────────────────────────
-  const handleDateChange = useCallback(async (newDate, service) => {
+  const handleDateChange = useCallback(async (newDate, duration) => {
     setSelectedDate(newDate);
     setSelectedTime(null);
-    if (!service) return;
+    if (!duration) return;
     const fresh = await fetchBookedSlots(newDate);
-    setAvailableSlots(calculateAvailableSlots(newDate, service.duration, fresh));
+    setAvailableSlots(calculateAvailableSlots(newDate, duration, fresh));
   }, [fetchBookedSlots, calculateAvailableSlots]);
 
   useEffect(() => {
-    if (step === 2 && selectedService) {
-      handleDateChange(selectedDate, selectedService);
+    if (step === 2 && totalDuration > 0) {
+      handleDateChange(selectedDate, totalDuration);
     }
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── וולידציה live לטלפון ─────────────────────────────────────────
-  // ✅ מציג שגיאה רק אחרי שהמשתמש סיים להקליד (onBlur)
   const handlePhoneBlur = () => {
     setPhoneTouched(true);
     if (guestPhone && !isValidPhone(guestPhone)) {
@@ -161,13 +179,21 @@ export default function BookingPage() {
 
     try {
       await submitBookingRequest({
-        serviceId:    selectedService.id,
-        serviceTitle: selectedService.title,
-        duration:     selectedService.duration,
-        price:        selectedService.price,
+        // ✅ 2. התיקון הקריטי: אנחנו משתמשים בשמות השדות המקוריים כדי ש-Firebase לא יחסום אותנו
+        serviceId:       selectedServices.map(s => s.id).join(','),
+        serviceTitle:    combinedTitle,
+        serviceDuration: totalDuration,
+        servicePrice:    totalPrice,
+        // ושומרים את המערך המלא למקרה שנרצה להציג פירוט בעתיד
+        services:        selectedServices.map((s) => ({
+          serviceId: s.id,
+          title:     s.title,
+          price:     Number(s.price),
+          duration:  Number(s.duration),
+        })),
         date:         selectedDate,
         startTime:    selectedTime,
-        endTime:      toTimeStr(toMin(selectedTime) + Number(selectedService.duration)),
+        endTime:      toTimeStr(toMin(selectedTime) + totalDuration),
         guestName:    guestName.trim(),
         guestPhone:   guestPhone.trim(),
         notes:        notes.trim(),
@@ -193,7 +219,6 @@ export default function BookingPage() {
 
   const businessName = providerSettings?.businessName || 'קביעת תור';
 
-  // ✅ האם הטופס מוכן לשליחה
   const canSubmit = guestName.trim().length >= 2
     && isValidPhone(guestPhone)
     && isConsentChecked
@@ -230,8 +255,10 @@ export default function BookingPage() {
               <div>
                 <h1 className="text-lg font-bold leading-tight">{businessName}</h1>
                 <p className="text-pink-200 text-xs mt-0.5">
-                  {step === 1 && 'בחרי טיפול להתחיל'}
-                  {step === 2 && selectedService?.title}
+                  {step === 1 && (selectedServices.length > 0
+                    ? `${selectedServices.length} טיפולים נבחרו · ₪${totalPrice}`
+                    : 'בחרי טיפול להתחיל')}
+                  {step === 2 && combinedTitle}
                   {step === 3 && 'פרטים אחרונים'}
                   {step === 4 && 'הבקשה נשלחה! 🎉'}
                 </p>
@@ -244,9 +271,9 @@ export default function BookingPage() {
         {/* ── תוכן ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto bg-gray-50/30">
 
-          {/* ═══ שלב 1: בחירת שירות ════════════════════════════ */}
+          {/* ═══ שלב 1: בחירת שירותים (מרובה) ═══════════════════ */}
           {step === 1 && (
-            <div className="p-4 space-y-3 pb-10">
+            <div className="p-4 pb-36 space-y-3">
               {services.length === 0 ? (
                 <div className="text-center py-16">
                   <Sparkles className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -256,44 +283,62 @@ export default function BookingPage() {
               ) : (
                 <>
                   <p className="text-xs text-gray-400 font-medium px-1 pt-2 pb-1">
-                    {services.length} טיפולים זמינים
+                    {services.length} טיפולים זמינים · ניתן לבחור מספר טיפולים
                   </p>
-                  {services.map((srv) => (
-                    <button
-                      key={srv.id}
-                      onClick={() => { setSelectedService(srv); setStep(2); }}
-                      className="w-full bg-white border border-gray-100 p-4 rounded-2xl
-                                 shadow-sm hover:border-pink-300 hover:shadow-md
-                                 hover:-translate-y-0.5 transition-all cursor-pointer
-                                 text-right group">
-                      <div className="flex justify-between items-center">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-gray-800 text-base">
-                            {srv.title}
-                          </span>
-                          <span className="text-sm text-gray-400 mt-1
-                                           flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 shrink-0" />
-                            {srv.duration} דקות
-                          </span>
+                  {services.map((srv) => {
+                    const isSelected = selectedServices.some((s) => s.id === srv.id);
+                    return (
+                      <button
+                        key={srv.id}
+                        onClick={() => toggleService(srv)}
+                        className={`w-full p-4 rounded-2xl border-2 shadow-sm
+                                   hover:-translate-y-0.5 transition-all cursor-pointer
+                                   text-right group relative ${
+                          isSelected
+                            ? 'bg-pink-50 border-[#e5007e] shadow-pink-200/50 shadow-md'
+                            : 'bg-white border-gray-100 hover:border-pink-300 hover:shadow-md'
+                        }`}>
+
+                        {/* checkmark על פינה ימנית עליונה */}
+                        <div className={`absolute top-3 left-3 w-5 h-5 rounded-full border-2
+                                        flex items-center justify-center transition-all ${
+                          isSelected
+                            ? 'bg-[#e5007e] border-[#e5007e]'
+                            : 'bg-white border-gray-300 group-hover:border-pink-300'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                         </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="font-bold text-[#e5007e] text-lg">
-                            ₪{Number(srv.price).toLocaleString('he-IL')}
-                          </span>
-                          <span className="text-xs text-gray-300
-                                           group-hover:text-[#e5007e]
-                                           transition-colors font-medium">
-                            לחצי לבחירה ←
-                          </span>
+
+                        <div className="flex justify-between items-center">
+                          <div className="flex flex-col">
+                            <span className={`font-bold text-base transition-colors ${
+                              isSelected ? 'text-[#e5007e]' : 'text-gray-800'
+                            }`}>
+                              {srv.title}
+                            </span>
+                            <span className="text-sm text-gray-400 mt-1
+                                             flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              {srv.duration} דקות
+                            </span>
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`font-bold text-lg transition-colors ${
+                              isSelected ? 'text-[#e5007e]' : 'text-gray-700'
+                            }`}>
+                              ₪{Number(srv.price).toLocaleString('he-IL')}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      {srv.color && (
-                        <div className="mt-3 h-1 rounded-full opacity-40"
-                             style={{ backgroundColor: srv.color }} />
-                      )}
-                    </button>
-                  ))}
+                        {srv.color && (
+                          <div className={`mt-3 h-1 rounded-full transition-opacity ${
+                            isSelected ? 'opacity-70' : 'opacity-30'
+                          }`}
+                               style={{ backgroundColor: srv.color }} />
+                        )}
+                      </button>
+                    );
+                  })}
                 </>
               )}
             </div>
@@ -323,7 +368,7 @@ export default function BookingPage() {
                     return (
                       <button key={dStr}
                         disabled={isClosed}
-                        onClick={() => handleDateChange(dStr, selectedService)}
+                        onClick={() => handleDateChange(dStr, totalDuration)}
                         className={`flex flex-col items-center justify-center
                                     min-w-[62px] py-3 px-2 rounded-2xl border
                                     transition-all shrink-0 ${
@@ -439,12 +484,31 @@ export default function BookingPage() {
                 <p className="text-xs text-gray-400 font-medium mb-2">
                   סיכום הבקשה שלך
                 </p>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-gray-800">
-                      {selectedService?.title}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-0.5
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 min-w-0 ml-3">
+                    {/* רשימת שירותים */}
+                    <div className="space-y-1.5 mb-2">
+                      {selectedServices.map((srv) => (
+                        <div key={srv.id} className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-gray-800 text-sm truncate">
+                            {srv.title}
+                          </span>
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {srv.duration} דק׳ · ₪{Number(srv.price).toLocaleString('he-IL')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedServices.length > 1 && (
+                      <div className="flex items-center justify-between pt-1.5
+                                      border-t border-gray-100 text-xs font-bold">
+                        <span className="text-gray-600">סה״כ</span>
+                        <span className="text-[#e5007e]">
+                          {totalDuration} דק׳ · ₪{totalPrice.toLocaleString('he-IL')}
+                        </span>
+                      </div>
+                    )}
+                    <p className="text-sm text-gray-500 mt-2
                                   flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5" />
                       {parseDateStr(selectedDate).toLocaleDateString('he-IL', {
@@ -454,12 +518,12 @@ export default function BookingPage() {
                     <p className="text-sm text-gray-500 mt-0.5
                                   flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5" />
-                      {selectedTime} · {selectedService?.duration} דקות
+                      {selectedTime} · {totalDuration} דקות
                     </p>
                   </div>
-                  <div className="text-left">
+                  <div className="text-left shrink-0">
                     <p className="font-bold text-xl text-[#e5007e]">
-                      ₪{Number(selectedService?.price).toLocaleString('he-IL')}
+                      ₪{totalPrice.toLocaleString('he-IL')}
                     </p>
                     <button onClick={() => setStep(2)}
                       className="text-xs text-gray-400 hover:text-[#e5007e]
@@ -501,7 +565,6 @@ export default function BookingPage() {
                     value={guestPhone}
                     onChange={(e) => {
                       setGuestPhone(e.target.value);
-                      // ✅ מנקה שגיאה בזמן הקלדה רק אם הטלפון כבר תקין
                       if (isValidPhone(e.target.value)) setPhoneError('');
                     }}
                     onBlur={handlePhoneBlur}
@@ -541,7 +604,7 @@ export default function BookingPage() {
                   </p>
                 </div>
 
-                {/* ✅ Legal Consent — משופר מבחינת UX */}
+                {/* Legal Consent */}
                 <div className={`flex items-start gap-3 p-4 rounded-2xl border-2
                                  transition-all cursor-pointer
                                  ${isConsentChecked
@@ -552,7 +615,6 @@ export default function BookingPage() {
                        setIsConsentChecked((v) => !v);
                        setSubmitError(null);
                      }}>
-                  {/* ✅ Checkbox מותאם — גדול יותר וקל לסימון במובייל */}
                   <div className={`w-5 h-5 rounded-md border-2 flex items-center
                                    justify-center shrink-0 mt-0.5 transition-all
                                    ${isConsentChecked
@@ -567,7 +629,6 @@ export default function BookingPage() {
                       </svg>
                     )}
                   </div>
-                  {/* ✅ hidden input לנגישות */}
                   <input
                     type="checkbox"
                     className="sr-only"
@@ -587,7 +648,6 @@ export default function BookingPage() {
                       </span>
                       {' '}ומסכימ/ת לשמירת פרטיי לצורך ניהול התור.
                     </p>
-                    {/* ✅ תג "מאושר" אחרי סימון */}
                     {isConsentChecked && (
                       <p className="text-xs text-green-600 font-semibold mt-1
                                     flex items-center gap-1">
@@ -607,7 +667,6 @@ export default function BookingPage() {
                   </div>
                 )}
 
-                {/* ✅ כפתור שליחה — עם הסבר למה disabled */}
                 <button type="submit"
                   disabled={!canSubmit}
                   className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
@@ -636,7 +695,6 @@ export default function BookingPage() {
           {step === 4 && (
             <div className="flex flex-col items-center justify-center
                             text-center px-6 py-16 min-h-[60vh]">
-              {/* ✅ אנימציית כניסה */}
               <div className="w-24 h-24 bg-green-100 rounded-full
                               flex items-center justify-center mb-6
                               animate-bounce">
@@ -666,7 +724,7 @@ export default function BookingPage() {
               <button
                 onClick={() => {
                   const [y, m, d] = selectedDate.split('-').map(Number);
-                  const endMin    = toMin(selectedTime) + Number(selectedService?.duration);
+                  const endMin    = toMin(selectedTime) + totalDuration;
                   const pad       = (n) => String(n).padStart(2, '0');
                   const [hh, mm]  = selectedTime.split(':').map(Number);
                   const dtStart   = `${y}${pad(m)}${pad(d)}T${pad(hh)}${pad(mm)}00`;
@@ -678,8 +736,8 @@ export default function BookingPage() {
                     'BEGIN:VEVENT',
                     `DTSTART:${dtStart}`,
                     `DTEND:${dtEnd}`,
-                    `SUMMARY:תור ל${selectedService?.title} — ${businessName}`,
-                    `DESCRIPTION:טיפול: ${selectedService?.title}\\nמחיר: ₪${selectedService?.price}\\nמשך: ${selectedService?.duration} דקות`,
+                    `SUMMARY:תור ל${combinedTitle} — ${businessName}`,
+                    `DESCRIPTION:טיפולים: ${combinedTitle}\\nמחיר: ₪${totalPrice}\\nמשך: ${totalDuration} דקות`,
                     `LOCATION:${businessName}`,
                     'STATUS:TENTATIVE',
                     'END:VEVENT', 'END:VCALENDAR',
@@ -708,6 +766,33 @@ export default function BookingPage() {
           )}
 
         </div>
+
+        {/* ✅ כפתור "המשך" צף בשלב 1 */}
+        {step === 1 && selectedServices.length > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 p-4
+                          bg-gradient-to-t from-white via-white to-transparent
+                          border-t border-gray-100 pointer-events-none">
+            <div className="pointer-events-auto">
+              <div className="bg-pink-50 rounded-xl px-4 py-2.5 mb-3
+                              flex justify-between items-center text-sm">
+                <span className="text-gray-600 font-medium">
+                  {selectedServices.length} טיפולים · {totalDuration} דק׳
+                </span>
+                <span className="font-bold text-[#e5007e]">
+                  ₪{totalPrice.toLocaleString('he-IL')}
+                </span>
+              </div>
+              <button
+                onClick={() => setStep(2)}
+                className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
+                           py-4 rounded-2xl font-bold text-base
+                           shadow-lg shadow-pink-500/30 transition-all
+                           active:scale-95">
+                המשך לבחירת מועד ←
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

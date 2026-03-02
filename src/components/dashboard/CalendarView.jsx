@@ -25,11 +25,11 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-// ✅ פתרון הקסם לבאג של Vite והייצוא הישן (חובה כדי למנוע מסך לבן!):
+// ✅ פתרון הקסם לבאג של Vite והייצוא הישן
 const withDnD = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
 const DnDCalendar = withDnD(Calendar);
 
-// ── 4. Custom Event Component עם אייקונים ─────────────────────────────────
+// ── Custom Event Component עם אייקונים ─────────────────────────────────
 function CustomEventComponent({ event }) {
   const isBlocked = event.isBlocked;
   const hasNotes  = !!event.resource?.notes;
@@ -64,7 +64,6 @@ function CustomEventComponent({ event }) {
           }}
           title="יש הערה לתור"
         >
-          {/* MessageSquare SVG inline — אין import בקומפוננט קטן */}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                style={{ width: '100%', height: '100%' }}>
@@ -87,7 +86,6 @@ function CustomEventComponent({ event }) {
           }}
           title="תור מהאתר"
         >
-          {/* Globe SVG inline */}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                style={{ width: '100%', height: '100%' }}>
@@ -108,10 +106,15 @@ function CustomEventComponent({ event }) {
 
 const eventStyleGetter = (event) => {
   const isBlocked = event.isBlocked;
-  // ✅ ימים סגורים — אפור כדי להשתלב עם הרקע; חסימות רגילות — כתום
-  const backgroundColor = isBlocked
-    ? (event.title === 'יום סגור' ? '#9ca3af' : '#f97316')
-    : (event.resource?.color || '#e5007e');
+
+  let backgroundColor;
+  if (isBlocked) {
+    backgroundColor = event.title === 'יום סגור' ? '#9ca3af' : '#f97316';
+  } else if (event.resource?.status === 'completed') {
+    backgroundColor = '#10b981';
+  } else {
+    backgroundColor = event.resource?.color || '#e5007e';
+  }
 
   return {
     style: {
@@ -151,11 +154,9 @@ const MESSAGES = {
 
 const VIEWS = ['month', 'week', 'day'];
 
-// ✅ Fallbacks למקרה שה-props לא הגיעו
 const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
 const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
 
-// ✅ 4. Custom components object — מוגדר מחוץ לקומפוננט למניעת re-render מיותר
 const CALENDAR_COMPONENTS = {
   event: CustomEventComponent,
 };
@@ -168,8 +169,8 @@ export default function CalendarView({
   onEventResize,
   minTime,
   maxTime,
-  businessHours,   // ✅ לצביעת ימים סגורים
-  closedDays,      // ✅ לצביעת ימי חופשה
+  businessHours,
+  closedDays,
   date,
   onNavigate,
   view,
@@ -204,7 +205,6 @@ export default function CalendarView({
     onSelectSlot?.(slotInfo);
   }, [onSelectSlot]);
 
-  // ✅ בדיקה אם יום הוא סגור (לפי הגדרות העסק או יום חופשה)
   const isDayClosed = useCallback((dateObj) => {
     if (!dateObj) return false;
     const cfg = businessHours?.[dateObj.getDay()];
@@ -213,7 +213,6 @@ export default function CalendarView({
     return false;
   }, [businessHours, closedDays]);
 
-  // ✅ צביעת רקע עמודות בתצוגת חודש/שבוע
   const customDayPropGetter = useCallback((dateObj) => {
     if (isDayClosed(dateObj)) {
       return { className: '!bg-gray-100 dark:!bg-gray-800/80 cursor-not-allowed' };
@@ -221,7 +220,6 @@ export default function CalendarView({
     return {};
   }, [isDayClosed]);
 
-  // ✅ צביעת חריצי זמן בתצוגת שבוע/יום
   const customSlotPropGetter = useCallback((dateObj) => {
     if (isDayClosed(dateObj)) {
       return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
@@ -229,14 +227,13 @@ export default function CalendarView({
     return {};
   }, [isDayClosed]);
 
-  // ✅ 5. גובה מותאם לפי תצוגה — week/day גבוה יותר לחריצים מרווחים
   const calendarHeight = view === 'month' ? 750 : 1400;
 
   return (
     <div
       className="
         w-full bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm
-        border border-gray-100 dark:border-gray-700
+        border border-gray-100 dark:border-gray-700 relative
 
         [&_.rbc-header]:bg-gray-50 [&_.rbc-header]:dark:bg-gray-700
         [&_.rbc-header]:text-gray-600 [&_.rbc-header]:dark:text-gray-300
@@ -263,6 +260,37 @@ export default function CalendarView({
       dir="rtl"
       style={{ height: calendarHeight }}
     >
+      {/* פתרון CSS טהור, חסין ומוחלט להובר ביומן */}
+      <style>
+        {`
+          /* 1. מונע מהשכבה השקופה של התורים לחסום את העכבר על משבצות ריקות */
+          .rbc-events-container {
+            pointer-events: none !important;
+          }
+          /* 2. מחזיר את היכולת ללחוץ על התורים עצמם */
+          .rbc-event {
+            pointer-events: auto !important;
+          }
+
+          /* 3. משבצת 15 דקות ספציפית ביומן יומי/שבועי */
+          .rbc-time-slot {
+            transition: all 0.15s ease;
+          }
+          .rbc-time-slot:not(.cursor-not-allowed):hover {
+            background-color: rgba(229, 0, 126, 0.15) !important;
+            box-shadow: inset 0 0 0 1px rgba(229, 0, 126, 0.3) !important;
+          }
+
+          /* 4. משבצת יום שלם ביומן חודשי */
+          .rbc-day-bg:not(.cursor-not-allowed) {
+            transition: background-color 0.15s ease;
+          }
+          .rbc-day-bg:not(.cursor-not-allowed):hover {
+            background-color: rgba(229, 0, 126, 0.08) !important;
+          }
+        `}
+      </style>
+
       <DnDCalendar
         localizer={localizer}
         events={events}

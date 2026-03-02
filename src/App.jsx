@@ -20,7 +20,7 @@ import Services              from './components/dashboard/Services';
 import BookingRequests       from './components/dashboard/BookingRequests';
 import BookingPage           from './components/BookingPage';
 import Login                 from './components/Login';
-import OnboardingWizard      from './components/onboarding/OnboardingWizard'; // ✅ חדש
+import OnboardingWizard      from './components/onboarding/OnboardingWizard';
 import { auth, db }          from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot }   from 'firebase/firestore';
@@ -35,23 +35,18 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
   const [navContext,    setNavContext]    = useState(null);
   const [autoConfirm,   setAutoConfirm]  = useState(false);
 
-  // ✅ חדש: האם להציג Onboarding
-  // null = טוען עדיין | true = הושלם | false = צריך להציג
   const [onboardingDone, setOnboardingDone] = useState(null);
 
   const { customers } = useCustomers();
 
-  // ✅ האזנה להגדרות — כולל onboardingCompleted
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, 'userSettings', user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setAutoConfirm(data.autoConfirm || false);
-        // ✅ אם השדה קיים וdone — מסתיר Wizard
         setOnboardingDone(data.onboardingCompleted === true);
       } else {
-        // ✅ מסמך לא קיים = משתמשת חדשה לגמרי
         setOnboardingDone(false);
       }
     });
@@ -68,7 +63,8 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard currentPage={currentPage} setCurrentPage={navigateTo} />;
-      case 'calendar':  return <Calendar />;
+      // ✅ FIX: העברת setCurrentPage ל-Calendar כדי שכפתור "פתח כרטיס לקוח" יעבוד
+      case 'calendar':  return <Calendar setCurrentPage={navigateTo} />;
       case 'customers': return <Customers prefilledContact={navContext} />;
       case 'services':  return <Services />;
       case 'income':    return <Income />;
@@ -103,7 +99,6 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
         {renderPage()}
       </main>
 
-      {/* ✅ Onboarding Wizard — מוצג רק למשתמשות חדשות */}
       {onboardingDone === false && (
         <OnboardingWizard onComplete={() => setOnboardingDone(true)} />
       )}
@@ -111,7 +106,7 @@ function AppShell({ user, isDarkMode, toggleDarkMode }) {
   );
 }
 
-// ── App ─── (זהה לחלוטין לקוד הקיים שלך) ────────────────────────────────────
+// ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
   const [user,        setUser]        = useState(null);

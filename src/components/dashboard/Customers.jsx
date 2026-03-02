@@ -1,6 +1,6 @@
 // src/components/dashboard/Customers.jsx
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useCustomers } from '../../hooks/useCustomers';
 import { useToast } from '../../context/ToastContext';
 import { Search, Plus, Phone, User, Edit, Trash2, X, Tag, AlertCircle } from 'lucide-react';
@@ -152,8 +152,8 @@ function CustomerModal({ isOpen, onClose, onSave, initialData }) {
                    w-full max-w-2xl max-h-[90vh] overflow-y-auto"
       >
         <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 px-6 py-4
-                        border-b border-gray-100 dark:border-gray-700
-                        flex justify-between items-center">
+                         border-b border-gray-100 dark:border-gray-700
+                         flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">
             {isEditing ? 'עריכת לקוחה' : 'לקוחה חדשה'}
           </h2>
@@ -376,8 +376,8 @@ export default function Customers({ prefilledContact }) {
   } = useCustomers();
   const { showToast } = useToast();
 
-  // ✅ 7. useLocation לקריאת state מ-React Router (ניווט מהיומן)
   const location = useLocation();
+  const navigate  = useNavigate();
 
   const [searchTerm,       setSearchTerm]       = useState('');
   const [filterType,       setFilterType]       = useState('all');
@@ -388,21 +388,17 @@ export default function Customers({ prefilledContact }) {
 
   const cardsRef = useRef([]);
 
-  // ✅ selectedCustomer תמיד מעודכן מ-Firestore דרך useCustomers
   const selectedCustomer = useMemo(
     () => (selectedId ? getCustomerById(selectedId) : null),
     [selectedId, customers, getCustomerById]
   );
 
-  // ✅ 7. פתח פרופיל אוטומטית אם הגענו מהיומן עם selectedCustomerId
   useEffect(() => {
-    const navId = location.state?.selectedCustomerId;
-    if (navId) {
-      setSelectedId(navId);
-      // נקה את ה-state כדי שרענון דף לא יפתח שוב
-      window.history.replaceState({}, '');
+    if (location.state?.selectedCustomerId) {
+      setSelectedId(location.state.selectedCustomerId);
+      navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state]);
+  }, [location.state, navigate]);
 
   // ניתוב חכם מבחוץ (prefilledContact)
   useEffect(() => {
@@ -415,7 +411,7 @@ export default function Customers({ prefilledContact }) {
     return result;
   }, [searchTerm, filterType, searchCustomers]);
 
-  // GSAP stagger — רק כשרשימה מוצגת (לא פרופיל)
+  // GSAP stagger — רק כשרשימה מוצגת
   useEffect(() => {
     if (selectedId) return;
     const els = cardsRef.current.filter(Boolean);
@@ -472,9 +468,7 @@ export default function Customers({ prefilledContact }) {
   );
 
   return (
-    // ✅ 2. תיקון bug: כל ה-render עטוף ב-fragment אחד כדי שה-modals תמיד ב-DOM
     <>
-      {/* ✅ 2. CustomerModal ו-DeleteConfirmModal תמיד מרונדרות, לא תלויות ב-selectedId */}
       <CustomerModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
@@ -489,18 +483,22 @@ export default function Customers({ prefilledContact }) {
         onCancel={() => setDeletingCustomer(null)}
       />
 
-      {/* ✅ 2. תנאי ternary — פרופיל או רשימה, אבל המודלים תמיד חיים */}
-      {selectedId && selectedCustomer ? (
-        <CustomerProfile
-          customer={selectedCustomer}
-          onBack={() => setSelectedId(null)}
-          onEdit={openEdit}
-        />
-      ) : selectedId && !selectedCustomer ? (
-        // לקוחה נמחקה בזמן שהפרופיל פתוח
-        (() => { setSelectedId(null); return null; })()
+      {/* ✅ 1. תיקון הבאג: אנחנו מחכים שהלקוח ייטען ולא סוגרים מיד את הפרופיל! */}
+      {selectedId ? (
+        selectedCustomer ? (
+          <CustomerProfile
+            customer={selectedCustomer}
+            onBack={() => setSelectedId(null)}
+            onEdit={openEdit}
+          />
+        ) : (
+          <div className="flex flex-col justify-center items-center py-32">
+             <div className="w-10 h-10 border-4 border-[#e5007e] border-t-transparent rounded-full animate-spin mb-4" />
+             <p className="text-gray-500 font-medium">פותח כרטיס לקוח...</p>
+          </div>
+        )
       ) : (
-        // ── רשימת לקוחות ───────────────────────────────────────────────────
+        // ── רשימת לקוחות ─────────────────────────────────────────────────
         <div className="p-4 md:p-8 space-y-6" dir="rtl">
 
           {/* Header */}
