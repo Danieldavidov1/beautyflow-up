@@ -63,6 +63,38 @@ export function useTreatments(customerId) {
     }
   };
 
+  // ── Update ───────────────────────────────────────────────────────────────
+  // ✅ פונקציית העדכון החדשה שמונעת את קריסת המערכת
+  const updateTreatment = async (treatmentId, updateData) => {
+    if (!customerId || !treatmentId) return;
+    try {
+      await updateDoc(doc(db, `customers/${customerId}/treatments`, treatmentId), {
+        ...updateData,
+        updatedAt: serverTimestamp(),
+      });
+
+      // ✅ חישוב מחדש של תאריך הביקור האחרון (למקרה שהתאריך שונה בעריכה)
+      const remaining = await getDocs(
+        query(
+          collection(db, `customers/${customerId}/treatments`),
+          orderBy('date', 'desc'),
+          limit(1)
+        )
+      );
+      const newLastVisit = remaining.empty
+        ? null
+        : remaining.docs[0].data().date;
+
+      await updateDoc(doc(db, 'customers', customerId), {
+        lastVisit:   newLastVisit,
+        updatedAt:   serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('[useTreatments] updateTreatment error:', err);
+      throw err;
+    }
+  };
+
   // ── Delete ───────────────────────────────────────────────────────────────
   const deleteTreatment = async (treatmentId) => {
     if (!customerId || !treatmentId) return;
@@ -94,5 +126,6 @@ export function useTreatments(customerId) {
     }
   };
 
-  return { treatments, loading, error, addTreatment, deleteTreatment };
+  // ✅ חשוב: הוספנו את updateTreatment לאובייקט המוחזר!
+  return { treatments, loading, error, addTreatment, updateTreatment, deleteTreatment };
 }

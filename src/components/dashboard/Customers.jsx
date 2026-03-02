@@ -1,5 +1,6 @@
 // src/components/dashboard/Customers.jsx
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useCustomers } from '../../hooks/useCustomers';
 import { useToast } from '../../context/ToastContext';
 import { Search, Plus, Phone, User, Edit, Trash2, X, Tag, AlertCircle } from 'lucide-react';
@@ -19,7 +20,6 @@ const EMPTY_FORM = {
   customerType: 'regular', tags: '', notes: '', medicalNotes: '', allergies: '',
 };
 
-// ✅ תיקון timezone — זהה ל-CustomerProfile
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
@@ -314,7 +314,6 @@ function CustomerCard({ customer, onEdit, onDelete, onClick, cardRef }) {
             </p>
           </div>
         </div>
-        {/* ✅ e.stopPropagation() — לא פותח פרופיל בלחיצה על עריכה/מחיקה */}
         <div className="flex gap-1 shrink-0">
           <button onClick={(e) => { e.stopPropagation(); onEdit(customer); }}
             className="p-1.5 text-gray-400 hover:text-[#e5007e]
@@ -356,7 +355,6 @@ function CustomerCard({ customer, onEdit, onDelete, onClick, cardRef }) {
         </div>
       )}
 
-      {/* ✅ תיקון timezone בתצוגת lastVisit */}
       {customer.totalVisits > 0 && (
         <p className="text-xs text-gray-400 dark:text-gray-500 border-t
                       border-gray-100 dark:border-gray-700 pt-3 mt-auto">
@@ -378,12 +376,15 @@ export default function Customers({ prefilledContact }) {
   } = useCustomers();
   const { showToast } = useToast();
 
+  // ✅ 7. useLocation לקריאת state מ-React Router (ניווט מהיומן)
+  const location = useLocation();
+
   const [searchTerm,       setSearchTerm]       = useState('');
   const [filterType,       setFilterType]       = useState('all');
   const [isModalOpen,      setIsModalOpen]      = useState(false);
   const [editingCustomer,  setEditingCustomer]  = useState(null);
   const [deletingCustomer, setDeletingCustomer] = useState(null);
-  const [selectedId,       setSelectedId]       = useState(null); // ✅ ID בלבד, לא object
+  const [selectedId,       setSelectedId]       = useState(null);
 
   const cardsRef = useRef([]);
 
@@ -392,6 +393,16 @@ export default function Customers({ prefilledContact }) {
     () => (selectedId ? getCustomerById(selectedId) : null),
     [selectedId, customers, getCustomerById]
   );
+
+  // ✅ 7. פתח פרופיל אוטומטית אם הגענו מהיומן עם selectedCustomerId
+  useEffect(() => {
+    const navId = location.state?.selectedCustomerId;
+    if (navId) {
+      setSelectedId(navId);
+      // נקה את ה-state כדי שרענון דף לא יפתח שוב
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   // ניתוב חכם מבחוץ (prefilledContact)
   useEffect(() => {
@@ -404,7 +415,7 @@ export default function Customers({ prefilledContact }) {
     return result;
   }, [searchTerm, filterType, searchCustomers]);
 
-  // GSAP stagger
+  // GSAP stagger — רק כשרשימה מוצגת (לא פרופיל)
   useEffect(() => {
     if (selectedId) return;
     const els = cardsRef.current.filter(Boolean);
@@ -439,7 +450,6 @@ export default function Customers({ prefilledContact }) {
     try {
       await deleteCustomer(deletingCustomer.id);
       showToast('הלקוחה נמחקה', 'success');
-      // ✅ אם מחקנו את הלקוחה שהפרופיל שלה פתוח — חזרה לרשימה
       if (selectedId === deletingCustomer.id) setSelectedId(null);
     } catch {
       showToast('שגיאה במחיקה', 'error');
@@ -461,120 +471,10 @@ export default function Customers({ prefilledContact }) {
     </div>
   );
 
-  // ✅ פרופיל לקוחה — selectedCustomer תמיד טרי מ-Firestore
-  if (selectedId) {
-    // אם הלקוחה נמחקה בזמן שהפרופיל פתוח
-    if (!selectedCustomer) {
-      setSelectedId(null);
-      return null;
-    }
-    return (
-      <CustomerProfile
-        customer={selectedCustomer}
-        onBack={() => setSelectedId(null)}
-        onEdit={openEdit}
-      />
-    );
-  }
-
   return (
-    <div className="p-4 md:p-8 space-y-6" dir="rtl">
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start
-                      sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white
-                         flex items-center gap-2">
-            <User className="w-7 h-7 text-[#e5007e]" />
-            ניהול לקוחות
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
-            סה״כ {customers.length} לקוחות במערכת
-          </p>
-        </div>
-        <button onClick={openAdd}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#e5007e]
-                     hover:bg-[#b30062] text-white rounded-2xl font-bold
-                     shadow-lg shadow-[#e5007e]/20 transition-colors">
-          <Plus className="w-5 h-5" />
-          לקוחה חדשה
-        </button>
-      </div>
-
-      {error && (
-        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200
-                        dark:border-red-800 text-red-700 dark:text-red-400
-                        rounded-xl text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Search + Filter */}
-      <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2
-                             text-gray-400 w-4 h-4 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="חיפוש לפי שם, טלפון או תגית..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-gray-200
-                       dark:border-gray-700 bg-white dark:bg-gray-800
-                       dark:text-white text-sm
-                       focus:border-[#e5007e] focus:ring-1 focus:ring-[#e5007e]
-                       outline-none transition-all shadow-sm"
-          />
-        </div>
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
-                     bg-white dark:bg-gray-800 dark:text-white text-sm outline-none
-                     focus:border-[#e5007e] shadow-sm min-w-[140px]"
-        >
-          <option value="all">כל הלקוחות</option>
-          <option value="regular">רגילות</option>
-          <option value="vip">VIP</option>
-          <option value="new">חדשות</option>
-        </select>
-      </div>
-
-      {/* Grid */}
-      {filteredCustomers.length === 0 ? (
-        <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50
-                        rounded-3xl border-2 border-dashed
-                        border-gray-200 dark:border-gray-700">
-          <User className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-500 dark:text-gray-400 mb-1">
-            {searchTerm || filterType !== 'all'
-              ? 'לא נמצאו לקוחות תואמות'
-              : 'אין לקוחות עדיין'}
-          </p>
-          {!searchTerm && filterType === 'all' && (
-            <button onClick={openAdd}
-              className="mt-3 text-sm text-[#e5007e] font-semibold hover:underline">
-              + הוסיפי לקוחה ראשונה
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredCustomers.map((customer, index) => (
-            <CustomerCard
-              key={customer.id}
-              customer={customer}
-              cardRef={(el) => { cardsRef.current[index] = el; }}
-              onEdit={openEdit}
-              onDelete={setDeletingCustomer}
-              onClick={(c) => setSelectedId(c.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Modals */}
+    // ✅ 2. תיקון bug: כל ה-render עטוף ב-fragment אחד כדי שה-modals תמיד ב-DOM
+    <>
+      {/* ✅ 2. CustomerModal ו-DeleteConfirmModal תמיד מרונדרות, לא תלויות ב-selectedId */}
       <CustomerModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
@@ -588,6 +488,116 @@ export default function Customers({ prefilledContact }) {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeletingCustomer(null)}
       />
-    </div>
+
+      {/* ✅ 2. תנאי ternary — פרופיל או רשימה, אבל המודלים תמיד חיים */}
+      {selectedId && selectedCustomer ? (
+        <CustomerProfile
+          customer={selectedCustomer}
+          onBack={() => setSelectedId(null)}
+          onEdit={openEdit}
+        />
+      ) : selectedId && !selectedCustomer ? (
+        // לקוחה נמחקה בזמן שהפרופיל פתוח
+        (() => { setSelectedId(null); return null; })()
+      ) : (
+        // ── רשימת לקוחות ───────────────────────────────────────────────────
+        <div className="p-4 md:p-8 space-y-6" dir="rtl">
+
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start
+                          sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white
+                             flex items-center gap-2">
+                <User className="w-7 h-7 text-[#e5007e]" />
+                ניהול לקוחות
+              </h1>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
+                סה״כ {customers.length} לקוחות במערכת
+              </p>
+            </div>
+            <button onClick={openAdd}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#e5007e]
+                         hover:bg-[#b30062] text-white rounded-2xl font-bold
+                         shadow-lg shadow-[#e5007e]/20 transition-colors">
+              <Plus className="w-5 h-5" />
+              לקוחה חדשה
+            </button>
+          </div>
+
+          {error && (
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200
+                            dark:border-red-800 text-red-700 dark:text-red-400
+                            rounded-xl text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Search + Filter */}
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2
+                                 text-gray-400 w-4 h-4 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="חיפוש לפי שם, טלפון או תגית..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-gray-200
+                           dark:border-gray-700 bg-white dark:bg-gray-800
+                           dark:text-white text-sm
+                           focus:border-[#e5007e] focus:ring-1 focus:ring-[#e5007e]
+                           outline-none transition-all shadow-sm"
+              />
+            </div>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
+                         bg-white dark:bg-gray-800 dark:text-white text-sm outline-none
+                         focus:border-[#e5007e] shadow-sm min-w-[140px]"
+            >
+              <option value="all">כל הלקוחות</option>
+              <option value="regular">רגילות</option>
+              <option value="vip">VIP</option>
+              <option value="new">חדשות</option>
+            </select>
+          </div>
+
+          {/* Grid */}
+          {filteredCustomers.length === 0 ? (
+            <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50
+                            rounded-3xl border-2 border-dashed
+                            border-gray-200 dark:border-gray-700">
+              <User className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 mb-1">
+                {searchTerm || filterType !== 'all'
+                  ? 'לא נמצאו לקוחות תואמות'
+                  : 'אין לקוחות עדיין'}
+              </p>
+              {!searchTerm && filterType === 'all' && (
+                <button onClick={openAdd}
+                  className="mt-3 text-sm text-[#e5007e] font-semibold hover:underline">
+                  + הוסיפי לקוחה ראשונה
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredCustomers.map((customer, index) => (
+                <CustomerCard
+                  key={customer.id}
+                  customer={customer}
+                  cardRef={(el) => { cardsRef.current[index] = el; }}
+                  onEdit={openEdit}
+                  onDelete={setDeletingCustomer}
+                  onClick={(c) => setSelectedId(c.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }

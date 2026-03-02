@@ -9,7 +9,8 @@ import { useToast } from '../../context/ToastContext';
 import {
   ArrowRight, Phone, MessageCircle, Calendar,
   Plus, Trash2, AlertCircle, Tag, X, Edit,
-  Globe, Smartphone, TrendingUp, ShoppingBag, Clock, FileText
+  Globe, Smartphone, TrendingUp, ShoppingBag, Clock, FileText,
+  MessageSquare
 } from 'lucide-react';
 import gsap from 'gsap';
 
@@ -41,8 +42,9 @@ const STATUS_STYLES = {
   pending:    { label: 'ממתין',  cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
 };
 
+// ✅ EMPTY_TREATMENT ללא price, עם id אופציונלי לצורך עריכה
 const EMPTY_TREATMENT = {
-  title: '', date: new Date().toISOString().split('T')[0], price: '', notes: '',
+  title: '', date: new Date().toISOString().split('T')[0], notes: '',
 };
 
 // ── Hook: useCustomerAppointments ──────────────────────────────────────────
@@ -108,11 +110,11 @@ function DeleteTreatmentModal({ isOpen, treatmentTitle, onConfirm, onCancel }) {
             <AlertCircle className="w-5 h-5 text-red-500" />
           </div>
           <div>
-            <h3 className="font-bold text-gray-800 dark:text-gray-100">מחיקת טיפול</h3>
+            <h3 className="font-bold text-gray-800 dark:text-gray-100">מחיקת הערה</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              למחוק את הטיפול{' '}
+              למחוק את ההערה{' '}
               <span className="font-semibold text-gray-700 dark:text-gray-200">
-                "{treatmentTitle}"
+                &quot;{treatmentTitle}&quot;
               </span>?
             </p>
           </div>
@@ -154,17 +156,19 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
 
 // ── CustomerProfile ────────────────────────────────────────────────────────
 export default function CustomerProfile({ customer, onBack, onEdit }) {
-  const { treatments, loading: loadingTreatments, error, addTreatment, deleteTreatment } =
+  // ✅ 3. הוספת updateTreatment מה-hook
+  const { treatments, loading: loadingTreatments, error, addTreatment, updateTreatment, deleteTreatment } =
     useTreatments(customer?.id);
   const { appointments, loading: loadingAppts } =
     useCustomerAppointments(customer?.id);
   const { showToast } = useToast();
 
-  const [activeTab,         setActiveTab]         = useState('treatments'); // 'treatments' | 'appointments'
   const [isAdding,          setIsAdding]          = useState(false);
   const [saving,            setSaving]            = useState(false);
   const [newTreatment,      setNewTreatment]      = useState(EMPTY_TREATMENT);
   const [deletingTreatment, setDeletingTreatment] = useState(null);
+  // ✅ 3. האם אנחנו במצב עריכה (יש id)
+  const isEditingNote = !!newTreatment.id;
 
   const pageRef     = useRef(null);
   const formRef     = useRef(null);
@@ -184,6 +188,18 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     return { totalRevenue, completedAppts, totalVisits };
   }, [treatments, appointments, customer.totalVisits]);
 
+  // ✅ Unified Timeline — מיזוג וממוין לפי תאריך יורד
+  const unifiedTimeline = useMemo(() => {
+    const taggedTreatments   = treatments.map((t) => ({ ...t, _type: 'note'        }));
+    const taggedAppointments = appointments.map((a) => ({ ...a, _type: 'appointment' }));
+
+    return [...taggedTreatments, ...taggedAppointments].sort((a, b) => {
+      const dateDiff = (b.date || '').localeCompare(a.date || '');
+      if (dateDiff !== 0) return dateDiff;
+      return ((b.startTime || '') > (a.startTime || '')) ? 1 : -1;
+    });
+  }, [treatments, appointments]);
+
   // ── GSAP ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!pageRef.current) return;
@@ -201,7 +217,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
       { opacity: 0, x: -16 },
       { opacity: 1, x: 0, duration: 0.35, stagger: 0.06, ease: 'power2.out' }
     );
-  }, [loadingTreatments, loadingAppts, activeTab]);
+  }, [loadingTreatments, loadingAppts, unifiedTimeline]);
 
   useEffect(() => {
     if (!isAdding || !formRef.current) return;
@@ -213,21 +229,36 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
 
   if (!customer) return null;
 
-  const typeMeta    = CUSTOMER_TYPE_LABELS[customer.customerType] ?? CUSTOMER_TYPE_LABELS.regular;
-  const isFromWeb   = customer.source === 'online_booking';
-  const set         = (field) => (e) => setNewTreatment((p) => ({ ...p, [field]: e.target.value }));
+  const typeMeta  = CUSTOMER_TYPE_LABELS[customer.customerType] ?? CUSTOMER_TYPE_LABELS.regular;
+  const isFromWeb = customer.source === 'online_booking';
+  const set       = (field) => (e) => setNewTreatment((p) => ({ ...p, [field]: e.target.value }));
 
+  // ✅ 3. פתיחת הטופס לעריכת הערה קיימת
+  const handleEditNote = (note) => {
+    setNewTreatment({ id: note.id, title: note.title, date: note.date, notes: note.notes || '' });
+    setIsAdding(true);
+  };
+
+  // ✅ 3. handleAddTreatment — קורא ל-updateTreatment אם יש id, אחרת addTreatment
   const handleAddTreatment = async (e) => {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
-      await addTreatment(newTreatment);
-      showToast('טיפול נוסף בהצלחה ✓', 'success');
+      if (isEditingNote) {
+        // עריכת הערה קיימת
+        const { id, ...updateData } = newTreatment;
+        await updateTreatment(id, updateData);
+        showToast('הערה עודכנה בהצלחה ✓', 'success');
+      } else {
+        // הוספת הערה חדשה
+        await addTreatment(newTreatment);
+        showToast('הערה נוספה בהצלחה ✓', 'success');
+      }
       setIsAdding(false);
       setNewTreatment(EMPTY_TREATMENT);
     } catch {
-      showToast('שגיאה בהוספת טיפול', 'error');
+      showToast(isEditingNote ? 'שגיאה בעדכון הערה' : 'שגיאה בהוספת הערה', 'error');
     } finally {
       setSaving(false);
     }
@@ -237,12 +268,17 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     if (!deletingTreatment) return;
     try {
       await deleteTreatment(deletingTreatment.id);
-      showToast('הטיפול נמחק', 'success');
+      showToast('ההערה נמחקה', 'success');
     } catch {
       showToast('שגיאה במחיקה', 'error');
     } finally {
       setDeletingTreatment(null);
     }
+  };
+
+  const handleCancelForm = () => {
+    setIsAdding(false);
+    setNewTreatment(EMPTY_TREATMENT);
   };
 
   const inputCls = `w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-600
@@ -292,7 +328,6 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${typeMeta.cls}`}>
                     {typeMeta.label}
                   </span>
-                  {/* ✅ תווית מקור */}
                   {isFromWeb ? (
                     <span className="flex items-center gap-1 text-[10px] px-2 py-0.5
                                      rounded-full font-semibold
@@ -435,75 +470,62 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
           </div>
         </div>
 
-        {/* ── עמודה ימין: Tabs + Timeline ───────────────────────────── */}
+        {/* ── עמודה ימין: Unified Timeline ─────────────────────────── */}
         <div className="w-full md:w-2/3">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm
                           border border-gray-100 dark:border-gray-700 min-h-[500px]">
 
-            {/* Tabs */}
+            {/* כותרת + כפתור הוספה */}
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
-                <button
-                  onClick={() => setActiveTab('treatments')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'treatments'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                  }`}>
-                  הערות ידניות
-                </button>
-                <button
-                  onClick={() => setActiveTab('appointments')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === 'appointments'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                  }`}>
-                  תורים מהיומן ({appointments.length})
-                </button>
+              <div>
+                <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">
+                  היסטוריה מלאה
+                </h2>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  תורים והערות ידניות — ממוינים לפי תאריך
+                </p>
               </div>
 
-              {activeTab === 'treatments' && !isAdding && (
-                <button onClick={() => setIsAdding(true)}
+              {!isAdding && (
+                <button onClick={() => { setNewTreatment(EMPTY_TREATMENT); setIsAdding(true); }}
                   className="flex items-center gap-1.5 text-sm font-semibold
                              text-[#e5007e] hover:text-[#b30062] bg-pink-50
                              dark:bg-pink-900/30 dark:hover:bg-pink-900/50
                              px-3 py-1.5 rounded-lg transition-colors">
-                  <Plus className="w-4 h-4" /> טיפול ידני חדש
+                  <Plus className="w-4 h-4" /> הוסף הערה ידנית
                 </button>
               )}
             </div>
 
-            {/* ✅ הוספת טיפול ידני - מתוקן עם isAdding */}
-            {activeTab === 'treatments' && isAdding && (
+            {/* ✅ 3. טופס הוספה / עריכת הערה ידנית */}
+            {isAdding && (
               <div ref={formRef} className="overflow-hidden">
                 <form onSubmit={handleAddTreatment}
                   className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-xl mb-6
                              border border-gray-100 dark:border-gray-600 space-y-3">
                   <div className="flex justify-between items-center mb-1">
                     <h3 className="font-bold text-gray-700 dark:text-gray-200 text-sm">
-                      תיעוד טיפול חדש
+                      {/* ✅ כותרת דינמית לפי מצב עריכה/הוספה */}
+                      {isEditingNote ? '✏️ עריכת הערה' : 'הוספת הערה ידנית'}
                     </h3>
-                    <button type="button" onClick={() => setIsAdding(false)}
+                    <button type="button" onClick={handleCancelForm}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="text" required placeholder="שם הטיפול"
+                    <input type="text" required placeholder="כותרת ההערה"
                       value={newTreatment.title} onChange={set('title')} className={inputCls} />
                     <input type="date" required
                       value={newTreatment.date} onChange={set('date')} className={inputCls} />
-                    <input type="number" placeholder="מחיר (₪) - אופציונלי" min="0" step="1"
-                      value={newTreatment.price} onChange={set('price')} className={inputCls} />
                   </div>
-                  <textarea placeholder="הערות על הטיפול (חומרים, תגובה, דגשים לפעם הבאה...)"
-                    rows={2} value={newTreatment.notes} onChange={set('notes')}
+                  <textarea placeholder="תוכן ההערה (חומרים, תגובה, דגשים לפעם הבאה...)"
+                    rows={3} value={newTreatment.notes} onChange={set('notes')}
                     className={`${inputCls} resize-none`} />
 
                   <div className="flex justify-end gap-2 pt-1">
-                    <button type="button" onClick={() => setIsAdding(false)}
+                    <button type="button" onClick={handleCancelForm}
                       className="px-4 py-2 text-sm font-medium text-gray-500
                                  hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg">
                       ביטול
@@ -511,14 +533,15 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     <button type="submit" disabled={saving}
                       className="px-4 py-2 text-sm font-bold text-white bg-[#e5007e]
                                  hover:bg-[#b30062] rounded-lg disabled:opacity-50">
-                      {saving ? 'שומר...' : 'שמור טיפול'}
+                      {/* ✅ טקסט כפתור דינמי */}
+                      {saving ? 'שומר...' : isEditingNote ? 'שמור שינויים' : 'שמור הערה'}
                     </button>
                   </div>
                 </form>
               </div>
             )}
 
-            {/* רשימות */}
+            {/* Unified Timeline */}
             {loading ? (
               <div className="flex justify-center items-center py-20">
                 <div className="w-8 h-8 border-4 border-[#e5007e] border-t-transparent
@@ -529,120 +552,136 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 <AlertCircle className="w-8 h-8 mx-auto mb-2" />
                 שגיאה בטעינת הנתונים
               </div>
+            ) : unifiedTimeline.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="font-medium mb-1">אין עדיין היסטוריה ללקוחה זו.</p>
+                <button onClick={() => { setNewTreatment(EMPTY_TREATMENT); setIsAdding(true); }}
+                  className="text-[#e5007e] hover:underline text-sm font-medium mt-1">
+                  + הוסף הערה ידנית ראשונה
+                </button>
+              </div>
             ) : (
               <div ref={timelineRef} className="space-y-4">
-
-                {/* --- טאב: תורים --- */}
-                {activeTab === 'appointments' && (
-                  appointments.length === 0 ? (
-                    <div className="text-center py-16 text-gray-400">
-                      <Calendar className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                      <p>אין עדיין תורים קרובים או היסטוריים ביומן.</p>
-                    </div>
-                  ) : (
-                    appointments.map((apt) => {
-                      const st = STATUS_STYLES[apt.status] || STATUS_STYLES.pending;
-                      return (
-                        <div key={apt.id} className="timeline-item flex gap-4">
-                          <div className="flex flex-col items-center">
-                            <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30
-                                            flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-800">
-                              <Calendar className="w-4 h-4 text-blue-500" />
-                            </div>
-                            <div className="w-0.5 h-full bg-gray-100 dark:bg-gray-700 my-2" />
-                          </div>
-                          <div className="flex-1 bg-gray-50 dark:bg-gray-700/30 rounded-2xl p-4
-                                          border border-gray-100 dark:border-gray-700 mb-2 hover:shadow-sm transition-shadow">
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                                  {apt.serviceTitle || apt.title || 'טיפול ללא שם'}
-                                </h3>
-                                <p className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                                  <span>{formatDate(apt.date)}</span>
-                                  <span>•</span>
-                                  <Clock className="w-3 h-3" />
-                                  <span>{apt.startTime} {apt.endTime ? `- ${apt.endTime}` : ''}</span>
-                                </p>
-                              </div>
-                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${st.cls}`}>
-                                {st.label}
-                              </span>
-                            </div>
-                            {apt.price > 0 && (
-                              <p className="text-xs font-bold text-[#e5007e] mt-2 bg-pink-50 dark:bg-pink-900/20 inline-block px-2 py-1 rounded-md">
-                                מחיר שנקבע: ₪{apt.price}
-                              </p>
-                            )}
-                            {apt.source === 'online_booking' && (
-                              <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
-                                <Globe className="w-3 h-3" /> תור זה נקבע אונליין מהאתר
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )
-                )}
-
-                {/* --- טאב: טיפולים/הערות ידניות --- */}
-                {activeTab === 'treatments' && (
-                  treatments.length === 0 ? (
-                    <div className="text-center py-16 text-gray-400">
-                      <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                      <p>אין עדיין תיעוד ידני ללקוחה זו.</p>
-                      <button onClick={() => setIsAdding(true)}
-                        className="text-[#e5007e] hover:underline text-sm font-medium mt-2">
-                        + הוספת תיעוד ראשון
-                      </button>
-                    </div>
-                  ) : (
-                    treatments.map((t) => (
-                      <div key={t.id} className="timeline-item flex gap-4">
+                {unifiedTimeline.map((item) => (
+                  item._type === 'appointment'
+                    ? /* ── כרטיס תור ──────────────────────────────────────── */
+                      <div key={item.id} className="timeline-item flex gap-4">
                         <div className="flex flex-col items-center">
-                          <div className="w-10 h-10 rounded-full bg-pink-50 dark:bg-pink-900/30
-                                          flex items-center justify-center shrink-0 border border-pink-100 dark:border-pink-800">
-                            <ShoppingBag className="w-4 h-4 text-[#e5007e]" />
+                          <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30
+                                          flex items-center justify-center shrink-0
+                                          border border-blue-100 dark:border-blue-800">
+                            <Calendar className="w-4 h-4 text-blue-500" />
                           </div>
-                          <div className="w-0.5 h-full bg-gray-100 dark:bg-gray-700 my-2" />
+                          <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
                         </div>
-                        <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl p-4
-                                        border border-gray-100 dark:border-gray-700 mb-2 hover:shadow-sm transition-shadow">
+                        <div className="flex-1 bg-gray-50 dark:bg-gray-700/30 rounded-2xl p-4
+                                        border border-gray-100 dark:border-gray-700 mb-2
+                                        hover:shadow-sm transition-shadow">
+                          {/* כותרת + סטטוס */}
                           <div className="flex justify-between items-start mb-2">
                             <div>
                               <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                                {t.title}
+                                {item.serviceTitle || item.title || 'טיפול ללא שם'}
                               </h3>
-                              <p className="text-xs text-gray-500 mt-0.5">{formatDate(t.date)}</p>
+                              <p className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                                <span>{formatDate(item.date)}</span>
+                                <span>•</span>
+                                <Clock className="w-3 h-3" />
+                                <span>{item.startTime}{item.endTime ? ` - ${item.endTime}` : ''}</span>
+                              </p>
                             </div>
-                            <div className="flex flex-col items-end gap-2">
-                              {t.price && (
-                                <span className="text-sm font-bold text-[#e5007e]">
-                                  ₪{Number(t.price).toLocaleString()}
-                                </span>
-                              )}
-                              <button onClick={() => setDeletingTreatment(t)}
-                                className="text-gray-400 hover:text-red-500 transition-colors p-1">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              (STATUS_STYLES[item.status] || STATUS_STYLES.pending).cls
+                            }`}>
+                              {(STATUS_STYLES[item.status] || STATUS_STYLES.pending).label}
+                            </span>
                           </div>
-                          {t.notes && (
-                            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                              <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                {t.notes}
+
+                          {/* מחיר */}
+                          {item.price > 0 && (
+                            <p className="text-xs font-bold text-[#e5007e] mt-2
+                                          bg-pink-50 dark:bg-pink-900/20
+                                          inline-block px-2 py-1 rounded-md">
+                              מחיר שנקבע: ₪{item.price}
+                            </p>
+                          )}
+
+                          {/* מקור אונליין */}
+                          {item.source === 'online_booking' && (
+                            <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
+                              <Globe className="w-3 h-3" /> תור זה נקבע אונליין מהאתר
+                            </p>
+                          )}
+
+                          {/* הערות התור */}
+                          {item.notes && (
+                            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20
+                                            rounded-xl border border-blue-100 dark:border-blue-800/50
+                                            flex items-start gap-2">
+                              <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                              <p className="text-xs text-blue-700 dark:text-blue-300
+                                            leading-relaxed whitespace-pre-wrap">
+                                {item.notes}
                               </p>
                             </div>
                           )}
                         </div>
                       </div>
-                    ))
-                  )
-                )}
 
+                    : /* ── כרטיס הערה ידנית ────────────────────────────────── */
+                      <div key={item.id} className="timeline-item flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <div className="w-10 h-10 rounded-full bg-pink-50 dark:bg-pink-900/30
+                                          flex items-center justify-center shrink-0
+                                          border border-pink-100 dark:border-pink-800">
+                            <FileText className="w-4 h-4 text-[#e5007e]" />
+                          </div>
+                          <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
+                        </div>
+                        <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl p-4
+                                        border border-gray-100 dark:border-gray-700 mb-2
+                                        hover:shadow-sm transition-shadow">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
+                                {item.title}
+                              </h3>
+                              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                                <FileText className="w-3 h-3" />
+                                הערה ידנית · {formatDate(item.date)}
+                              </p>
+                            </div>
+                            {/* ✅ 3. כפתורי Edit + Trash2 לצד הערות ידניות */}
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleEditNote(item)}
+                                title="ערוך הערה"
+                                className="text-gray-400 hover:text-[#e5007e] transition-colors p-1">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingTreatment(item)}
+                                title="מחק הערה"
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          {item.notes && (
+                            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                              <p className="text-sm text-gray-600 dark:text-gray-300
+                                            leading-relaxed whitespace-pre-wrap">
+                                {item.notes}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                ))}
               </div>
             )}
+
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 // src/components/dashboard/Calendar.jsx
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppointments }      from '../../hooks/useAppointments';
 import { useCustomers }         from '../../hooks/useCustomers';
 import { useServices }          from '../../hooks/useServices';
@@ -10,7 +11,8 @@ import {
   ChevronRight, ChevronLeft, Calendar as CalendarIcon,
   Plus, Clock, User, UserPlus, X, Trash2, CheckCircle,
   AlertCircle, Edit, Search, Tag, Wallet, Check,
-  LayoutList, CalendarDays, Minus, AlertTriangle, Lock
+  LayoutList, CalendarDays, Minus, AlertTriangle, Lock,
+  ExternalLink
 } from 'lucide-react';
 import gsap from 'gsap';
 import CalendarView from './CalendarView';
@@ -83,6 +85,7 @@ const EMPTY_FORM = {
   status:     'scheduled',
   price:      0,
   color:      '#e5007e',
+  notes:      '',
 };
 
 // ── BlockTimeModal ─────────────────────────────────────────────────────────
@@ -262,6 +265,8 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
   const { customers, addCustomer } = useCustomers();
   const { activeServices }         = useServices();
   const { showToast }              = useToast();
+  // ✅ 6. useNavigate לניווט לפרופיל לקוח
+  const navigate                   = useNavigate();
 
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -356,33 +361,101 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     });
   };
 
+  // ✅ 1. תיקון ולידציה — title מיוצר דינמית אם חסר
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
-    const finalTitle = showCustomInput ? customTitle.trim() : formData.title.trim();
+
+    // ✅ בדיקה מתוקנת: האם יש שירותים תקינים?
+    const hasValidServices =
+      formData.services.length > 0 ||
+      (showCustomInput && customTitle.trim() !== '');
+
     if (!formData.customerId) { showToast('יש לבחור לקוחה', 'error'); return; }
-    if (!finalTitle)          { showToast('יש לבחור לפחות טיפול אחד', 'error'); return; }
+    if (!hasValidServices)    { showToast('יש לבחור לפחות טיפול אחד', 'error'); return; }
     if (formData.endTime <= formData.startTime) { showToast('שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error'); return; }
     if (!businessHoursCheck.allowed) showToast(`⚠️ התור מחוץ לשעות הפעילות: ${businessHoursCheck.reason}`, 'warning');
+
     setSaving(true);
     const customer = customers.find((c) => c.id === formData.customerId);
+
+    // ✅ יצירת title דינמי אם חסר
+    let finalTitle = showCustomInput
+      ? customTitle.trim()
+      : formData.title.trim();
+
+    if (!finalTitle) {
+      // fallback: generate from services or date
+      if (formData.services.length > 0) {
+        finalTitle = formData.services
+          .map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title)
+          .join(' + ');
+      } else {
+        finalTitle = `תור ${formData.date}`;
+      }
+    }
+
     try {
-      await onSave({ ...formData, title: finalTitle, price: Number(formData.price) || 0, customerName: customer?.name ?? 'לקוחה לא ידועה', customerPhone: customer?.phone ?? '' });
+      await onSave({
+        ...formData,
+        title:        finalTitle,
+        price:        Number(formData.price) || 0,
+        customerName: customer?.name  ?? 'לקוחה לא ידועה',
+        customerPhone: customer?.phone ?? '',
+      });
       handleClose();
-    } catch (err) { console.error('[AppointmentModal]', err); showToast('שגיאה בשמירת התור', 'error'); } finally { setSaving(false); }
+    } catch (err) {
+      console.error('[AppointmentModal]', err);
+      showToast('שגיאה בשמירת התור', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ✅ 6. ניווט לפרופיל הלקוח
+  const handleNavigateToCustomer = () => {
+    if (!formData.customerId) return;
+    handleClose();
+    navigate('/dashboard/customers', {
+      state: { selectedCustomerId: formData.customerId },
+    });
   };
 
   if (!isOpen) return null;
-  const hasServices = formData.services.length > 0 || (showCustomInput && customTitle.trim());
-  const canSubmit   = formData.customerId && hasServices && !saving;
+  const hasValidServices =
+    formData.services.length > 0 ||
+    (showCustomInput && customTitle.trim() !== '');
+  const canSubmit = formData.customerId && hasValidServices && !saving;
 
   return (
     <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto" onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }} dir="rtl">
       <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md my-4 overflow-hidden">
+
+        {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10 rounded-t-2xl">
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">{isEditing ? 'עריכת תור ✏️' : 'תור חדש ✨'}</h2>
           <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#e5007e] rounded-full hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"><X size={20} /></button>
         </div>
+
+        {/* ✅ 6. כפתור "פתח כרטיס לקוח" — רק בעריכה וכשיש לקוחה נבחרת */}
+        {isEditing && formData.customerId && (
+          <div className="px-6 pt-4 pb-0">
+            <button
+              type="button"
+              onClick={handleNavigateToCustomer}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4
+                         bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400
+                         border border-blue-100 dark:border-blue-800/50
+                         rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/40
+                         transition-colors text-sm font-semibold"
+            >
+              <User className="w-4 h-4" />
+              👤 פתח כרטיס לקוח
+              <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             {isAddingNewCustomer ? (
@@ -413,6 +486,18 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
           {!businessHoursCheck.allowed && (<div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50"><AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" /><div><p className="text-xs font-semibold text-amber-700 dark:text-amber-400">מחוץ לשעות הפעילות</p><p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{businessHoursCheck.reason} — ניתן לשמור בכל זאת</p></div></div>)}
           {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (<p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 pr-1 flex items-center gap-1"><Clock className="w-3 h-3" /> משך: {(() => { const [sh, sm] = formData.startTime.split(':').map(Number); const [eh, em] = formData.endTime.split(':').map(Number); const diff = (eh * 60 + em) - (sh * 60 + sm); return diff >= 60 ? `${Math.floor(diff / 60)}:${String(diff % 60).padStart(2, '0')} שעות` : `${diff} דקות`; })()}</p>)}
           {isEditing && (<div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">סטטוס</label><select value={formData.status} onChange={(e) => set('status', e.target.value)} className={inputCls}><option value="scheduled">מתוכנן</option><option value="completed">הושלם</option><option value="cancelled">בוטל</option></select></div>)}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+              📝 הערות לתור
+            </label>
+            <textarea
+              value={formData.notes || ''}
+              onChange={(e) => set('notes', e.target.value)}
+              placeholder="הערות לתור (אופציונלי)..."
+              rows={3}
+              className={`${inputCls} resize-none`}
+            />
+          </div>
           <div className="pt-2 flex gap-3"><button type="button" onClick={handleClose} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button><button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 rounded-xl bg-[#e5007e] hover:bg-[#b30062] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/20">{saving ? 'שומר...' : isEditing ? '💾 שמור שינויים' : '✅ קביעת תור'}</button></div>
         </form>
       </div>
@@ -428,13 +513,13 @@ export default function Calendar() {
   const { showToast }            = useToast();
   const { businessHours, closedDays, loading: settingsLoading } = useBusinessSettings();
 
-  const [currentDate,      setCurrentDate]      = useState(new Date());
-  const [gridMode,         setGridMode]         = useState('week');
-  const [isModalOpen,      setIsModalOpen]      = useState(false);
-  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
-  const [editingApt,       setEditingApt]       = useState(null);
-  const [deletingApt,      setDeletingApt]      = useState(null);
-  const [chargingApt,      setChargingApt]      = useState(null);
+  const [currentDate,       setCurrentDate]       = useState(new Date());
+  const [gridMode,          setGridMode]          = useState('week');
+  const [isModalOpen,       setIsModalOpen]       = useState(false);
+  const [isBlockModalOpen,  setIsBlockModalOpen]  = useState(false);
+  const [editingApt,        setEditingApt]        = useState(null);
+  const [deletingApt,       setDeletingApt]       = useState(null);
+  const [chargingApt,       setChargingApt]       = useState(null);
 
   const loading = apptLoading || srvLoading;
 
@@ -468,7 +553,6 @@ export default function Calendar() {
       return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
     }
 
-    // מוסיפים 30 דקות "נשימה" מעל ומתחת כדי שלא ייראה חנוק
     const paddedMin = Math.max(0,    earliestMin - 30);
     const paddedMax = Math.min(1439, latestMin   + 30);
 
@@ -478,18 +562,16 @@ export default function Calendar() {
     };
   }, [businessHours]);
 
-  // ✅ אירועי "יום סגור" וירטואליים — חוסמים ימים לא פעילים לפי הגדרות העסק
+  // ✅ אירועי "יום סגור" וירטואליים
   const closedDaysEvents = useMemo(() => {
     if (!businessHours) return [];
 
-    // בונים רשימת תאריכים לפי התצוגה הנוכחית
     let datesInView = [];
     if (gridMode === 'week') {
       datesInView = weekDays;
     } else if (gridMode === 'day') {
       datesInView = [currentDate];
     } else {
-      // חודש — 6 שבועות (42 יום) שהיומן מציג
       const firstOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const viewStart    = getWeekStart(firstOfMonth);
       for (let i = 0; i < 42; i++) {
@@ -501,7 +583,7 @@ export default function Calendar() {
 
     const events = [];
     for (const dateObj of datesInView) {
-      const dayIndex = dateObj.getDay(); // 0=ראשון ... 6=שבת
+      const dayIndex = dateObj.getDay();
       const cfg = businessHours[dayIndex];
       if (!cfg || !cfg.isActive) {
         const y  = dateObj.getFullYear();
@@ -522,7 +604,7 @@ export default function Calendar() {
 
   const navigate = (delta) => {
     const d = new Date(currentDate);
-    if (gridMode === 'month')     d.setMonth(d.getMonth() + delta);
+    if (gridMode === 'month')      d.setMonth(d.getMonth() + delta);
     else if (gridMode === 'week') d.setDate(d.getDate() + delta * 7);
     else                          d.setDate(d.getDate() + delta);
     setCurrentDate(d);
@@ -580,7 +662,6 @@ export default function Calendar() {
     const date     = toDateStr(start);
     const dayIndex = start.getDay();
 
-    // ✅ guard — מונע פתיחת מודל ביום סגור או יום חופשה
     const cfg = businessHours?.[dayIndex];
     if (!cfg || !cfg.isActive) {
       showToast('לא ניתן לקבוע תור ביום סגור', 'error');
@@ -706,7 +787,6 @@ export default function Calendar() {
 
       {error && (<div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm">{error}</div>)}
 
-      {/* ✅ מועברים minTime ו-maxTime דינמיים */}
       <CalendarView
         appointments={[...appointments, ...closedDaysEvents]}
         onSelectEvent={(e) => openEdit(e.resource)}

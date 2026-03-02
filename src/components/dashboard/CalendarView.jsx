@@ -29,6 +29,83 @@ const localizer = dateFnsLocalizer({
 const withDnD = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
 const DnDCalendar = withDnD(Calendar);
 
+// ── 4. Custom Event Component עם אייקונים ─────────────────────────────────
+function CustomEventComponent({ event }) {
+  const isBlocked = event.isBlocked;
+  const hasNotes  = !!event.resource?.notes;
+  const isOnline  = event.resource?.source === 'online_booking';
+
+  return (
+    <div
+      style={{
+        display:        'flex',
+        alignItems:     'center',
+        gap:            '3px',
+        overflow:       'hidden',
+        width:          '100%',
+        fontSize:       '11px',
+        fontWeight:     'bold',
+        lineHeight:     '1.3',
+        direction:      'rtl',
+      }}
+      title={event.title}
+    >
+      {/* אייקון הערות תור */}
+      {!isBlocked && hasNotes && (
+        <span
+          style={{
+            display:        'inline-flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            flexShrink:     0,
+            width:          '12px',
+            height:         '12px',
+            opacity:        0.9,
+          }}
+          title="יש הערה לתור"
+        >
+          {/* MessageSquare SVG inline — אין import בקומפוננט קטן */}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+               style={{ width: '100%', height: '100%' }}>
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </span>
+      )}
+
+      {/* אייקון הזמנה אונליין */}
+      {!isBlocked && isOnline && (
+        <span
+          style={{
+            display:        'inline-flex',
+            alignItems:     'center',
+            justifyContent: 'center',
+            flexShrink:     0,
+            width:          '11px',
+            height:         '11px',
+            opacity:        0.9,
+          }}
+          title="תור מהאתר"
+        >
+          {/* Globe SVG inline */}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+               style={{ width: '100%', height: '100%' }}>
+            <circle cx="12" cy="12" r="10" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+        </span>
+      )}
+
+      {/* כותרת */}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+        {event.title}
+      </span>
+    </div>
+  );
+}
+
 const eventStyleGetter = (event) => {
   const isBlocked = event.isBlocked;
   // ✅ ימים סגורים — אפור כדי להשתלב עם הרקע; חסימות רגילות — כתום
@@ -44,7 +121,7 @@ const eventStyleGetter = (event) => {
       color:        'white',
       border:       'none',
       display:      'block',
-      fontSize:     '12px',
+      fontSize:     '11px',
       fontWeight:   'bold',
       padding:      '2px 5px',
       cursor:       isBlocked ? 'default' : 'pointer',
@@ -78,6 +155,11 @@ const VIEWS = ['month', 'week', 'day'];
 const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
 const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
 
+// ✅ 4. Custom components object — מוגדר מחוץ לקומפוננט למניעת re-render מיותר
+const CALENDAR_COMPONENTS = {
+  event: CustomEventComponent,
+};
+
 export default function CalendarView({
   appointments = [],
   onSelectEvent,
@@ -86,8 +168,8 @@ export default function CalendarView({
   onEventResize,
   minTime,
   maxTime,
-  businessHours, // ✅ לצביעת ימים סגורים
-  closedDays,    // ✅ לצביעת ימי חופשה
+  businessHours,   // ✅ לצביעת ימים סגורים
+  closedDays,      // ✅ לצביעת ימי חופשה
   date,
   onNavigate,
   view,
@@ -147,6 +229,9 @@ export default function CalendarView({
     return {};
   }, [isDayClosed]);
 
+  // ✅ 5. גובה מותאם לפי תצוגה — week/day גבוה יותר לחריצים מרווחים
+  const calendarHeight = view === 'month' ? 750 : 1400;
+
   return (
     <div
       className="
@@ -176,7 +261,7 @@ export default function CalendarView({
         [&_.rbc-date-cell.rbc-now_a]:!text-[#e5007e] [&_.rbc-date-cell.rbc-now_a]:!font-bold
       "
       dir="rtl"
-      style={{ height: view === 'month' ? 680 : 720 }}
+      style={{ height: calendarHeight }}
     >
       <DnDCalendar
         localizer={localizer}
@@ -204,6 +289,7 @@ export default function CalendarView({
         min={minTime || DEFAULT_MIN}
         max={maxTime || DEFAULT_MAX}
         eventPropGetter={eventStyleGetter}
+        components={CALENDAR_COMPONENTS}
         messages={MESSAGES}
         popup
         popupOffset={10}
