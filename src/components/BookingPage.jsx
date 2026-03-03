@@ -179,12 +179,16 @@ export default function BookingPage() {
 
     try {
       await submitBookingRequest({
-        // ✅ 2. התיקון הקריטי: אנחנו משתמשים בשמות השדות המקוריים כדי ש-Firebase לא יחסום אותנו
-        serviceId:       selectedServices.map(s => s.id).join(','),
+        // ✅ SECURITY FIX: send serviceId only for single-service bookings.
+        // For multi-service, the `services` array satisfies the Firestore OR condition,
+        // and serviceId is omitted entirely — !('serviceId' in data) = true → rules pass.
+        // Sending joined IDs for 7+ services would exceed the 128-char limit and block the write.
+        ...(selectedServices.length === 1
+          ? { serviceId: selectedServices[0].id }
+          : {}),
         serviceTitle:    combinedTitle,
         serviceDuration: totalDuration,
         servicePrice:    totalPrice,
-        // ושומרים את המערך המלא למקרה שנרצה להציג פירוט בעתיד
         services:        selectedServices.map((s) => ({
           serviceId: s.id,
           title:     s.title,

@@ -232,7 +232,6 @@ function CustomerSelect({ customers, value, onChange }) {
 }
 
 // ── DeleteAppointmentModal ─────────────────────────────────────────────────
-// ✅ FIX 6C: reason state + textarea + passes reason to onConfirm
 function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel }) {
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
@@ -259,7 +258,6 @@ function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel 
             <p className="text-sm text-gray-500 dark:text-gray-400">למחוק את התור <span className="font-semibold text-gray-700 dark:text-gray-200">&quot;{appointmentTitle}&quot;</span>? פעולה זו אינה ניתנת לביטול.</p>
           </div>
         </div>
-        {/* ✅ FIX 6C: cancellation reason textarea */}
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
@@ -269,7 +267,6 @@ function DeleteAppointmentModal({ isOpen, appointmentTitle, onConfirm, onCancel 
         />
         <div className="flex gap-3 mt-5">
           <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button>
-          {/* ✅ FIX 6C: pass reason to onConfirm */}
           <button onClick={() => onConfirm(reason)} className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors">מחק תור</button>
         </div>
       </div>
@@ -293,7 +290,6 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
 }
 
 // ── AppointmentModal ───────────────────────────────────────────────────────
-// ✅ FIX 4: receives onDeleteClick prop for the delete button in header
 function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, businessHours, closedDays, setCurrentPage, onCompleteClick, onDeleteClick }) {
   const { customers, addCustomer } = useCustomers();
   const { activeServices }         = useServices();
@@ -321,7 +317,6 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     if (!isOpen) return;
     if (initialData && initialData.id) {
       let loadedServices = initialData.services && initialData.services.length > 0 ? initialData.services : [];
-      // ✅ FIX 3: strictly parse numbers to prevent NaN in ServiceSelector
       loadedServices = loadedServices.map(s => ({
         ...s,
         qty:      Number(s.qty)      || 1,
@@ -467,7 +462,6 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10 rounded-t-2xl">
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">{isEditing ? 'עריכת תור ✏️' : 'תור חדש ✨'}</h2>
           <div className="flex items-center gap-1">
-            {/* ✅ FIX 4: Delete button in header, only when editing */}
             {isEditing && (
               <button
                 type="button"
@@ -482,7 +476,6 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
           </div>
         </div>
 
-        {/* כפתור "פתח כרטיס לקוח" — רק בעריכה וכשיש לקוחה נבחרת */}
         {isEditing && formData.customerId && (
           <div className="px-6 pt-4 pb-0">
             <button
@@ -543,8 +536,6 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
               className={`${inputCls} resize-none`}
             />
           </div>
-
-          {/* Checkout button + Cancel/Save buttons */}
           <div className="pt-2 flex flex-col gap-3">
             {isEditing && formData.status !== 'completed' && (
               <button
@@ -688,18 +679,20 @@ export default function Calendar({ setCurrentPage }) {
     catch (err) { showToast(err.message || 'שגיאה בחסימה', 'error'); throw err; }
   };
 
-  // ✅ FIX 6C: accept reason, write cancellation note with time to CRM before deleting
+  // ✅ Refactor B: ביטול תור → נכתב ל-activity_logs (לא treatments)
+  // eventType: 'cancellation' — מאפשר סינון נקי בעתיד ללא האק על title
   const handleDeleteConfirm = async (reason) => {
     if (!deletingApt) return;
     try {
       if (deletingApt.customerId && deletingApt.customerId !== '__blocked__') {
-        await addDoc(collection(db, `customers/${deletingApt.customerId}/treatments`), {
-          title:     `תור בוטל: ${deletingApt.title}`,
-          price:     0,
-          notes:     reason ? `סיבת ביטול: ${reason}` : 'התור נמחק מהיומן ללא סיבה.',
-          date:      toDateStr(new Date()),
-          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
-          createdAt: serverTimestamp(),
+        await addDoc(collection(db, `customers/${deletingApt.customerId}/activity_logs`), {
+          eventType:  'cancellation',
+          title:      `תור בוטל: ${deletingApt.title}`.slice(0, 200),
+          notes:      reason ? `סיבת ביטול: ${reason}` : 'התור נמחק מהיומן ללא סיבה.',
+          price:      0,
+          date:       toDateStr(new Date()),
+          time:       new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt:  serverTimestamp(),
         });
       }
       await deleteAppointment(deletingApt.id);
@@ -721,24 +714,36 @@ export default function Calendar({ setCurrentPage }) {
     else handleStatusChange(apt.id, 'completed');
   };
 
-  // ✅ FIX 6A: write payment note with time to CRM on confirm charge
+  // ✅ Refactor B: תשלום → נכתב ל-activity_logs (לא treatments)
+  // eventType: 'payment' — מאפשר חישוב הכנסות נקי ללא סינון לפי title
   const handleConfirmCharge = async (apt) => {
     try {
-      await addTransaction({ amount: Number(apt.price), category: apt.services?.[0]?.title ?? 'טיפולים', source: apt.customerName || 'לקוחה מהיומן', date: toDateStr(new Date()), notes: `תור אוטומטי: ${apt.title}` });
+      await addTransaction({
+        amount:   Number(apt.price),
+        category: apt.services?.[0]?.title ?? 'טיפולים',
+        source:   apt.customerName || 'לקוחה מהיומן',
+        date:     toDateStr(new Date()),
+        notes:    `תור אוטומטי: ${apt.title}`,
+      });
       await updateAppointment(apt.id, { status: 'completed' });
-      // ✅ FIX 6A: CRM timeline note for payment
       if (apt.customerId && apt.customerId !== '__blocked__') {
-        await addDoc(collection(db, `customers/${apt.customerId}/treatments`), {
+        await addDoc(collection(db, `customers/${apt.customerId}/activity_logs`), {
+          eventType: 'payment',
           title:     'תשלום התקבל 💰',
-          price:     apt.price,
           notes:     'תשלום עבור ' + apt.title,
+          price:     apt.price,
           date:      toDateStr(new Date()),
           time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           createdAt: serverTimestamp(),
         });
       }
       showToast(`₪${apt.price} נוספו להכנסות 💰`, 'success');
-    } catch (err) { console.error('[ChargeModal]', err); showToast('שגיאה בשמירת ההכנסה', 'error'); } finally { setChargingApt(null); }
+    } catch (err) {
+      console.error('[ChargeModal]', err);
+      showToast('שגיאה בשמירת ההכנסה', 'error');
+    } finally {
+      setChargingApt(null);
+    }
   };
 
   const openAdd  = () => { setEditingApt(null); setIsModalOpen(true); };
@@ -768,7 +773,8 @@ export default function Calendar({ setCurrentPage }) {
     setIsModalOpen(true);
   };
 
-  // ✅ FIX 6B: write reschedule note with time to CRM after drop
+  // ✅ Refactor B: שינוי מועד (גרירה) → נכתב ל-activity_logs (לא treatments)
+  // eventType: 'reschedule' — מאפשר סינון נקי בעתיד
   const handleEventDrop = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date = toDateStr(start);
@@ -780,13 +786,13 @@ export default function Calendar({ setCurrentPage }) {
     }
     try {
       await updateAppointment(event.id, { date, startTime, endTime });
-      // ✅ FIX 6B: CRM note for rescheduled appointment
       const customerId = event.resource?.customerId;
       if (customerId && customerId !== '__blocked__') {
-        await addDoc(collection(db, `customers/${customerId}/treatments`), {
+        await addDoc(collection(db, `customers/${customerId}/activity_logs`), {
+          eventType: 'reschedule',
           title:     'שינוי מועד תור 🔄',
-          price:     0,
           notes:     'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
+          price:     0,
           date:      toDateStr(new Date()),
           time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           createdAt: serverTimestamp(),
@@ -799,7 +805,8 @@ export default function Calendar({ setCurrentPage }) {
     }
   }, [updateAppointment, showToast]);
 
-  // ✅ FIX 6B: write reschedule note with time to CRM after resize
+  // ✅ Refactor B: שינוי מועד (שינוי גודל) → נכתב ל-activity_logs (לא treatments)
+  // eventType: 'reschedule' — זהה ל-handleEventDrop, ניתן לאחד לפונקציה משותפת בעתיד
   const handleEventResize = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date      = toDateStr(start);
@@ -807,13 +814,13 @@ export default function Calendar({ setCurrentPage }) {
     const endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
     try {
       await updateAppointment(event.id, { date, startTime, endTime });
-      // ✅ FIX 6B: CRM note for resized appointment
       const customerId = event.resource?.customerId;
       if (customerId && customerId !== '__blocked__') {
-        await addDoc(collection(db, `customers/${customerId}/treatments`), {
+        await addDoc(collection(db, `customers/${customerId}/activity_logs`), {
+          eventType: 'reschedule',
           title:     'שינוי מועד תור 🔄',
+          notes:     'התור שונה לתאריך ' + date + ' בשעה ' + startTime,
           price:     0,
-          notes:     'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
           date:      toDateStr(new Date()),
           time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           createdAt: serverTimestamp(),
@@ -918,7 +925,6 @@ export default function Calendar({ setCurrentPage }) {
         onView={(newView) => setGridMode(newView)}
       />
 
-      {/* ✅ FIX 4: pass onDeleteClick to AppointmentModal */}
       <AppointmentModal
         isOpen={isModalOpen}
         onClose={handleModalClose}

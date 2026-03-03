@@ -4,31 +4,32 @@ import {
   collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
 import { db, auth } from '../../firebase';
-import { useTreatments } from '../../hooks/useTreatments';
-import { useToast } from '../../context/ToastContext';
+import { useTreatments }    from '../../hooks/useTreatments';
+import { useActivityLogs }  from '../../hooks/useActivityLogs';
+import { useToast }         from '../../context/ToastContext';
 import {
   ArrowRight, Phone, MessageCircle, Calendar,
   Plus, Trash2, AlertCircle, Tag, X, Edit,
   Globe, Smartphone, TrendingUp, ShoppingBag, Clock, FileText,
-  MessageSquare
+  MessageSquare, Wallet, Ban, RefreshCw, Activity,
 } from 'lucide-react';
 import gsap from 'gsap';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-// ✅ FIX 3: include Hebrew weekday in formatted date
 function formatDate(dateStr) {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-');
   return new Date(+y, +m - 1, +d)
-    .toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric' })
+    .toLocaleDateString('he-IL', {
+      weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric',
+    })
     .replace(',', '');
 }
 
 function sanitizePhone(raw = '') {
   let num = raw.replace(/[\s\-().]/g, '');
-  if (num.startsWith('0'))  num = '972' + num.slice(1);
-  if (num.startsWith('+'))  num = num.slice(1);
+  if (num.startsWith('0')) num = '972' + num.slice(1);
+  if (num.startsWith('+')) num = num.slice(1);
   return num;
 }
 
@@ -39,10 +40,64 @@ const CUSTOMER_TYPE_LABELS = {
 };
 
 const STATUS_STYLES = {
-  scheduled: { label: 'מתוכנן',  cls: 'bg-blue-100   text-blue-700   dark:bg-blue-900/30   dark:text-blue-400'   },
-  completed:  { label: 'הושלם',  cls: 'bg-green-100  text-green-700  dark:bg-green-900/30  dark:text-green-400'  },
-  cancelled:  { label: 'בוטל',   cls: 'bg-red-100    text-red-600    dark:bg-red-900/30    dark:text-red-400'    },
-  pending:    { label: 'ממתין',  cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
+  scheduled: { label: 'מתוכנן', cls: 'bg-blue-100   text-blue-700   dark:bg-blue-900/30   dark:text-blue-400'   },
+  completed:  { label: 'הושלם', cls: 'bg-green-100  text-green-700  dark:bg-green-900/30  dark:text-green-400'  },
+  cancelled:  { label: 'בוטל',  cls: 'bg-red-100    text-red-600    dark:bg-red-900/30    dark:text-red-400'    },
+  pending:    { label: 'ממתין', cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
+};
+
+// ── זיהוי סוג פעולה אוטומטית ישנה (לפני ה-Refactor) ─────────────────────
+function detectAutoType(title = '') {
+  if (title.includes('תשלום התקבל'))  return 'payment';
+  if (title.includes('תור בוטל'))     return 'cancellation';
+  if (title.includes('שינוי מועד'))   return 'reschedule';
+  return null;
+}
+
+// מטא-דאטה לאייקון/עיצוב לפי eventType מ-activity_logs
+const ACTIVITY_META = {
+  payment: {
+    Icon:        Wallet,
+    iconBg:      'bg-emerald-50 dark:bg-emerald-900/30',
+    iconBorder:  'border-emerald-100 dark:border-emerald-800',
+    iconColor:   'text-emerald-500',
+    cardBg:      'bg-emerald-50/50 dark:bg-emerald-900/10',
+    cardBorder:  'border-emerald-100 dark:border-emerald-800/50',
+    badge:       'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    badgeLabel:  'תשלום',
+  },
+  cancellation: {
+    Icon:        Ban,
+    iconBg:      'bg-red-50 dark:bg-red-900/30',
+    iconBorder:  'border-red-100 dark:border-red-800',
+    iconColor:   'text-red-400',
+    cardBg:      'bg-red-50/40 dark:bg-red-900/10',
+    cardBorder:  'border-red-100 dark:border-red-800/40',
+    badge:       'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+    badgeLabel:  'ביטול',
+  },
+  reschedule: {
+    Icon:        RefreshCw,
+    iconBg:      'bg-blue-50 dark:bg-blue-900/30',
+    iconBorder:  'border-blue-100 dark:border-blue-800',
+    iconColor:   'text-blue-400',
+    cardBg:      'bg-blue-50/40 dark:bg-blue-900/10',
+    cardBorder:  'border-blue-100 dark:border-blue-800/40',
+    badge:       'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+    badgeLabel:  'הזזת תור',
+  },
+};
+
+// Fallback למקרה של eventType לא מוכר
+const ACTIVITY_META_DEFAULT = {
+  Icon:       Activity,
+  iconBg:     'bg-gray-50 dark:bg-gray-700/50',
+  iconBorder: 'border-gray-200 dark:border-gray-600',
+  iconColor:  'text-gray-400',
+  cardBg:     'bg-gray-50 dark:bg-gray-700/20',
+  cardBorder: 'border-gray-100 dark:border-gray-700',
+  badge:      'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400',
+  badgeLabel: 'פעולה',
 };
 
 const EMPTY_TREATMENT = {
@@ -55,7 +110,7 @@ const EMPTY_TREATMENT = {
 // ── Hook: useCustomerAppointments ──────────────────────────────────────────
 function useCustomerAppointments(customerId) {
   const [appointments, setAppointments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
     if (!customerId) { setAppointments([]); setLoading(false); return; }
@@ -74,11 +129,10 @@ function useCustomerAppointments(customerId) {
         setLoading(false);
       },
       (err) => {
-        console.error('[useCustomerAppointments] error:', err);
+        console.error('[useCustomerAppointments]', err);
         setLoading(false);
       }
     );
-
     return () => unsub();
   }, [customerId]);
 
@@ -147,9 +201,7 @@ function DeleteTreatmentModal({ isOpen, treatmentTitle, onConfirm, onCancel }) {
 function StatCard({ icon: Icon, label, value, accent = false }) {
   return (
     <div className={`text-center p-3 rounded-xl ${
-      accent
-        ? 'bg-pink-50 dark:bg-pink-900/10'
-        : 'bg-gray-50 dark:bg-gray-700/50'
+      accent ? 'bg-pink-50 dark:bg-pink-900/10' : 'bg-gray-50 dark:bg-gray-700/50'
     }`}>
       <Icon className={`w-4 h-4 mx-auto mb-1 ${accent ? 'text-[#e5007e]' : 'text-gray-400'}`} />
       <p className={`text-lg font-bold ${accent ? 'text-[#e5007e]' : 'text-gray-700 dark:text-gray-300'}`}>
@@ -162,10 +214,17 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
 
 // ── CustomerProfile ────────────────────────────────────────────────────────
 export default function CustomerProfile({ customer, onBack, onEdit }) {
-  const { treatments, loading: loadingTreatments, error, addTreatment, updateTreatment, deleteTreatment } =
-    useTreatments(customer?.id);
-  const { appointments, loading: loadingAppts } =
-    useCustomerAppointments(customer?.id);
+  const {
+    treatments,
+    loading: loadingTreatments,
+    error,
+    addTreatment,
+    updateTreatment,
+    deleteTreatment,
+  } = useTreatments(customer?.id);
+
+  const { appointments, loading: loadingAppts }     = useCustomerAppointments(customer?.id);
+  const { activityLogs, loading: loadingActivities } = useActivityLogs(customer?.id);
   const { showToast } = useToast();
 
   const [isAdding,          setIsAdding]          = useState(false);
@@ -180,34 +239,47 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
 
   // ── חישוב סטטיסטיקות ──────────────────────────────────────────────────
   const stats = useMemo(() => {
-    // ✅ FIX 1: exclude auto-generated payment notes from revenue to avoid double-count
-    // (payment notes are also counted via apptRevenue from completed appointments)
-    const treatmentsRevenue = treatments
-      .filter(t => !(t.title || '').includes('תשלום התקבל'))
-      .reduce((sum, t) => sum + (Number(t.price) || 0), 0);
-
     const apptRevenue = appointments
       .filter((a) => a.status === 'completed')
       .reduce((sum, a) => sum + (Number(a.price) || 0), 0);
 
-    const totalRevenue   = treatmentsRevenue + apptRevenue;
+    // תוקן (✅): סינון treatments אוטומטיים ישנים למניעת double-count
+    const manualNotesRevenue = treatments
+      .filter((t) => !detectAutoType(t.title))
+      .reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+
+    const totalRevenue   = apptRevenue + manualNotesRevenue;
     const completedAppts = appointments.filter((a) => a.status === 'completed').length;
     const totalVisits    = (customer.totalVisits ?? 0) + completedAppts;
 
     return { totalRevenue, completedAppts, totalVisits };
   }, [treatments, appointments, customer.totalVisits]);
 
-  // ✅ Unified Timeline — מיזוג וממוין לפי תאריך יורד
+  // ── Unified Timeline ───────────────────────────────────────────────────
   const unifiedTimeline = useMemo(() => {
-    const taggedTreatments   = treatments.map((t) => ({ ...t, _type: 'note'        }));
-    const taggedAppointments = appointments.map((a) => ({ ...a, _type: 'appointment' }));
+    // תוקן (✅): תמיכה לאחור בלוגים ישנים שנכתבו כ-treatments
+    const taggedTreatments = treatments.map((t) => {
+      const oldAutoType = detectAutoType(t.title);
+      if (oldAutoType) {
+        return { ...t, _type: 'activity', eventType: oldAutoType };
+      }
+      return { ...t, _type: 'note' };
+    });
 
-    return [...taggedTreatments, ...taggedAppointments].sort((a, b) => {
+    const tagged = [
+      ...taggedTreatments,
+      ...activityLogs.map((l) => ({ ...l,  _type: 'activity'    })),
+      ...appointments.map((a) => ({ ...a,  _type: 'appointment' })),
+    ];
+
+    return tagged.sort((a, b) => {
       const dateDiff = (b.date || '').localeCompare(a.date || '');
       if (dateDiff !== 0) return dateDiff;
-      return ((b.startTime || '') > (a.startTime || '')) ? 1 : -1;
+      const timeA = a.startTime || a.time || '';
+      const timeB = b.startTime || b.time || '';
+      return timeB > timeA ? 1 : -1;
     });
-  }, [treatments, appointments]);
+  }, [treatments, activityLogs, appointments]);
 
   // ── GSAP ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -219,14 +291,14 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
   }, []);
 
   useEffect(() => {
-    if (loadingTreatments || loadingAppts || !timelineRef.current) return;
+    if (loadingTreatments || loadingAppts || loadingActivities || !timelineRef.current) return;
     const items = timelineRef.current.querySelectorAll('.timeline-item');
     if (items.length === 0) return;
     gsap.fromTo(items,
       { opacity: 0, x: -16 },
       { opacity: 1, x: 0, duration: 0.35, stagger: 0.06, ease: 'power2.out' }
     );
-  }, [loadingTreatments, loadingAppts, unifiedTimeline]);
+  }, [loadingTreatments, loadingAppts, loadingActivities, unifiedTimeline]);
 
   useEffect(() => {
     if (!isAdding || !formRef.current) return;
@@ -296,7 +368,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     bg-white dark:bg-gray-800 dark:text-white text-sm outline-none
     focus:border-[#e5007e] focus:ring-1 focus:ring-[#e5007e] transition-all`;
 
-  const loading = loadingTreatments || loadingAppts;
+  const loading = loadingTreatments || loadingAppts || loadingActivities;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -344,16 +416,14 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                                      rounded-full font-semibold
                                      bg-blue-100 text-blue-700
                                      dark:bg-blue-900/30 dark:text-blue-400">
-                      <Globe className="w-2.5 h-2.5" />
-                      זימון תורים
+                      <Globe className="w-2.5 h-2.5" /> זימון תורים
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 text-[10px] px-2 py-0.5
                                      rounded-full font-semibold
                                      bg-gray-100 text-gray-500
                                      dark:bg-gray-700 dark:text-gray-400">
-                      <Smartphone className="w-2.5 h-2.5" />
-                      ידני
+                      <Smartphone className="w-2.5 h-2.5" /> ידני
                     </span>
                   )}
                 </div>
@@ -417,27 +487,17 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     className="flex items-center gap-1 text-[10px] px-2 py-0.5
                                rounded-full bg-gray-100 text-gray-600
                                dark:bg-gray-700 dark:text-gray-300">
-                    <Tag className="w-2.5 h-2.5" />
-                    {tag}
+                    <Tag className="w-2.5 h-2.5" /> {tag}
                   </span>
                 ))}
               </div>
             )}
 
-            {/* סטטיסטיקות מחושבות */}
+            {/* סטטיסטיקות */}
             <div className="grid grid-cols-3 gap-2 mt-4 pt-4
                             border-t border-gray-100 dark:border-gray-700">
-              <StatCard
-                icon={Calendar}
-                label="ביקורים"
-                value={stats.totalVisits}
-                accent
-              />
-              <StatCard
-                icon={ShoppingBag}
-                label="תורים"
-                value={appointments.length}
-              />
+              <StatCard icon={Calendar}  label="ביקורים" value={stats.totalVisits} accent />
+              <StatCard icon={ShoppingBag} label="תורים"  value={appointments.length} />
               <StatCard
                 icon={TrendingUp}
                 label="הכנסה"
@@ -473,9 +533,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
                   הערות כלליות
                 </p>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  {customer.notes}
-                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{customer.notes}</p>
               </div>
             )}
           </div>
@@ -486,19 +544,19 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm
                           border border-gray-100 dark:border-gray-700 min-h-[500px]">
 
-            {/* כותרת + כפתור הוספה */}
+            {/* כותרת */}
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
               <div>
                 <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">
                   היסטוריה מלאה
                 </h2>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  תורים והערות ידניות — ממוינים לפי תאריך
+                  תורים, פעולות אוטומטיות והערות ידניות — ממוינים לפי תאריך
                 </p>
               </div>
-
               {!isAdding && (
-                <button onClick={() => { setNewTreatment(EMPTY_TREATMENT); setIsAdding(true); }}
+                <button
+                  onClick={() => { setNewTreatment(EMPTY_TREATMENT); setIsAdding(true); }}
                   className="flex items-center gap-1.5 text-sm font-semibold
                              text-[#e5007e] hover:text-[#b30062] bg-pink-50
                              dark:bg-pink-900/30 dark:hover:bg-pink-900/50
@@ -508,7 +566,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               )}
             </div>
 
-            {/* Add/Edit form */}
+            {/* טופס הוספה/עריכה */}
             {isAdding && (
               <div ref={formRef} className="overflow-hidden">
                 <form onSubmit={handleAddTreatment}
@@ -532,11 +590,11 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                       value={newTreatment.date} onChange={set('date')} className={inputCls} />
                     <input type="time" required
                       value={newTreatment.time || ''}
-                      onChange={set('time')}
-                      className={inputCls} />
+                      onChange={set('time')} className={inputCls} />
                   </div>
 
-                  <textarea placeholder="תוכן ההערה (חומרים, תגובה, דגשים לפעם הבאה...)"
+                  <textarea
+                    placeholder="תוכן ההערה (חומרים, תגובה, דגשים לפעם הבאה...)"
                     rows={3} value={newTreatment.notes} onChange={set('notes')}
                     className={`${inputCls} resize-none`} />
 
@@ -556,7 +614,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             )}
 
-            {/* Unified Timeline */}
+            {/* Timeline */}
             {loading ? (
               <div className="flex justify-center items-center py-20">
                 <div className="w-8 h-8 border-4 border-[#e5007e] border-t-transparent
@@ -578,119 +636,107 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             ) : (
               <div ref={timelineRef} className="space-y-4">
-                {unifiedTimeline.map((item) => (
-                  item._type === 'appointment'
-                    ? /* ── כרטיס תור ──────────────────────────────────────── */
-                      <div key={item.id} className="timeline-item flex gap-4">
-                        <div className="flex flex-col items-center">
-                          <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30
-                                          flex items-center justify-center shrink-0
-                                          border border-blue-100 dark:border-blue-800">
-                            <Calendar className="w-4 h-4 text-blue-500" />
-                          </div>
-                          <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
+                {unifiedTimeline.map((item) => {
+
+                  // ── כרטיס תור ─────────────────────────────────────
+                  if (item._type === 'appointment') return (
+                    <div key={`apt-${item.id}`} className="timeline-item flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30
+                                        flex items-center justify-center shrink-0
+                                        border border-blue-100 dark:border-blue-800">
+                          <Calendar className="w-4 h-4 text-blue-500" />
                         </div>
-                        <div className="flex-1 bg-gray-50 dark:bg-gray-700/30 rounded-2xl p-4
-                                        border border-gray-100 dark:border-gray-700 mb-2
-                                        hover:shadow-sm transition-shadow">
-                          {/* כותרת + סטטוס */}
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                                {item.serviceTitle || item.title || 'טיפול ללא שם'}
-                              </h3>
-                              <p className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                                <span>{formatDate(item.date)}</span>
-                                <span>•</span>
-                                <Clock className="w-3 h-3" />
-                                <span>{item.startTime}{item.endTime ? ` - ${item.endTime}` : ''}</span>
-                              </p>
-                            </div>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                              (STATUS_STYLES[item.status] || STATUS_STYLES.pending).cls
-                            }`}>
-                              {(STATUS_STYLES[item.status] || STATUS_STYLES.pending).label}
-                            </span>
-                          </div>
-
-                          {/* מחיר */}
-                          {item.price > 0 && (
-                            <p className="text-xs font-bold text-[#e5007e] mt-2
-                                          bg-pink-50 dark:bg-pink-900/20
-                                          inline-block px-2 py-1 rounded-md">
-                              מחיר שנקבע: ₪{item.price}
-                            </p>
-                          )}
-
-                          {/* מקור אונליין */}
-                          {item.source === 'online_booking' && (
-                            <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
-                              <Globe className="w-3 h-3" /> תור זה נקבע אונליין מהאתר
-                            </p>
-                          )}
-
-                          {/* הערות התור */}
-                          {item.notes && (
-                            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20
-                                            rounded-xl border border-blue-100 dark:border-blue-800/50
-                                            flex items-start gap-2">
-                              <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-                              <p className="text-xs text-blue-700 dark:text-blue-300
-                                            leading-relaxed whitespace-pre-wrap">
-                                {item.notes}
-                              </p>
-                            </div>
-                          )}
-                        </div>
+                        <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
                       </div>
+                      <div className="flex-1 bg-gray-50 dark:bg-gray-700/30 rounded-2xl p-4
+                                      border border-gray-100 dark:border-gray-700 mb-2
+                                      hover:shadow-sm transition-shadow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
+                              {item.serviceTitle || item.title || 'טיפול ללא שם'}
+                            </h3>
+                            <p className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                              <span>{formatDate(item.date)}</span>
+                              <span>•</span>
+                              <Clock className="w-3 h-3" />
+                              <span>{item.startTime}{item.endTime ? ` - ${item.endTime}` : ''}</span>
+                            </p>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                            (STATUS_STYLES[item.status] || STATUS_STYLES.pending).cls
+                          }`}>
+                            {(STATUS_STYLES[item.status] || STATUS_STYLES.pending).label}
+                          </span>
+                        </div>
+                        {item.price > 0 && (
+                          <p className="text-xs font-bold text-[#e5007e] mt-2
+                                        bg-pink-50 dark:bg-pink-900/20
+                                        inline-block px-2 py-1 rounded-md">
+                            מחיר שנקבע: ₪{item.price}
+                          </p>
+                        )}
+                        {item.source === 'online_booking' && (
+                          <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
+                            <Globe className="w-3 h-3" /> תור זה נקבע אונליין מהאתר
+                          </p>
+                        )}
+                        {item.notes && (
+                          <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20
+                                          rounded-xl border border-blue-100 dark:border-blue-800/50
+                                          flex items-start gap-2">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                            <p className="text-xs text-blue-700 dark:text-blue-300
+                                          leading-relaxed whitespace-pre-wrap">
+                              {item.notes}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
 
-                    : /* ── כרטיס הערה ידנית ────────────────────────────────── */
-                      <div key={item.id} className="timeline-item flex gap-4">
+                  // ── כרטיס פעולה אוטומטית (activity_logs) ─────────
+                  if (item._type === 'activity') {
+                    const meta = ACTIVITY_META[item.eventType] ?? ACTIVITY_META_DEFAULT;
+                    const { Icon: IconComp } = meta;
+                    return (
+                      <div key={`act-${item.id}`} className="timeline-item flex gap-4">
                         <div className="flex flex-col items-center">
-                          <div className="w-10 h-10 rounded-full bg-pink-50 dark:bg-pink-900/30
-                                          flex items-center justify-center shrink-0
-                                          border border-pink-100 dark:border-pink-800">
-                            <FileText className="w-4 h-4 text-[#e5007e]" />
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center
+                                           shrink-0 border ${meta.iconBg} ${meta.iconBorder}`}>
+                            <IconComp className={`w-4 h-4 ${meta.iconColor}`} />
                           </div>
                           <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
                         </div>
-                        <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl p-4
-                                        border border-gray-100 dark:border-gray-700 mb-2
-                                        hover:shadow-sm transition-shadow">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
-                                {item.title}
-                              </h3>
-                              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                                <FileText className="w-3 h-3" />
-                                הערה ידנית · {formatDate(item.date)}{item.time ? ` · ${item.time}` : ''}
-                              </p>
-                              {/* ✅ FIX 2: price badge on manual note cards */}
-                              {item.price > 0 && (
-                                <span className="text-xs font-bold text-[#e5007e] bg-pink-50 dark:bg-pink-900/20 px-2 py-1 rounded-md mt-2 inline-block">
-                                  סכום ששולם: ₪{item.price}
+                        <div className={`flex-1 rounded-2xl p-4 border mb-2
+                                         hover:shadow-sm transition-shadow
+                                         ${meta.cardBg} ${meta.cardBorder}`}>
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
+                                  {item.title}
+                                </h3>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${meta.badge}`}>
+                                  {meta.badgeLabel}
                                 </span>
-                              )}
+                              </div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                <Activity className="w-3 h-3" />
+                                פעולה אוטומטית · {formatDate(item.date)}{item.time ? ` · ${item.time}` : ''}
+                              </p>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                onClick={() => handleEditNote(item)}
-                                title="ערוך הערה"
-                                className="text-gray-400 hover:text-[#e5007e] transition-colors p-1">
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setDeletingTreatment(item)}
-                                title="מחק הערה"
-                                className="text-gray-400 hover:text-red-500 transition-colors p-1">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                            {item.eventType === 'payment' && item.price > 0 && (
+                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0 mr-2">
+                                ₪{Number(item.price).toLocaleString('he-IL')}
+                              </span>
+                            )}
                           </div>
                           {item.notes && (
-                            <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                              <p className="text-sm text-gray-600 dark:text-gray-300
+                            <div className="mt-2 p-2.5 bg-white/60 dark:bg-gray-800/40 rounded-lg">
+                              <p className="text-xs text-gray-600 dark:text-gray-300
                                             leading-relaxed whitespace-pre-wrap">
                                 {item.notes}
                               </p>
@@ -698,13 +744,67 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                           )}
                         </div>
                       </div>
-                ))}
+                    );
+                  }
+
+                  // ── כרטיס הערה ידנית (treatments) ─────────────────
+                  return (
+                    <div key={`note-${item.id}`} className="timeline-item flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="w-10 h-10 rounded-full bg-pink-50 dark:bg-pink-900/30
+                                        flex items-center justify-center shrink-0
+                                        border border-pink-100 dark:border-pink-800">
+                          <FileText className="w-4 h-4 text-[#e5007e]" />
+                        </div>
+                        <div className="w-0.5 flex-1 bg-gray-100 dark:bg-gray-700 my-2" />
+                      </div>
+                      <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl p-4
+                                      border border-gray-100 dark:border-gray-700 mb-2
+                                      hover:shadow-sm transition-shadow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h3 className="font-bold text-gray-800 dark:text-gray-100 text-sm">
+                              {item.title}
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                              <FileText className="w-3 h-3" />
+                              הערה ידנית · {formatDate(item.date)}{item.time ? ` · ${item.time}` : ''}
+                            </p>
+                            {item.price > 0 && (
+                              <span className="text-xs font-bold text-[#e5007e] bg-pink-50
+                                               dark:bg-pink-900/20 px-2 py-1 rounded-md mt-2 inline-block">
+                                סכום ששולם: ₪{item.price}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => handleEditNote(item)} title="ערוך הערה"
+                              className="text-gray-400 hover:text-[#e5007e] transition-colors p-1">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => setDeletingTreatment(item)} title="מחק הערה"
+                              className="text-gray-400 hover:text-red-500 transition-colors p-1">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        {item.notes && (
+                          <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                            <p className="text-sm text-gray-600 dark:text-gray-300
+                                          leading-relaxed whitespace-pre-wrap">
+                              {item.notes}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
           </div>
         </div>
-
       </div>
     </div>
   );
