@@ -177,10 +177,16 @@ export default function CalendarView({
   // ── Two-Tap State ──────────────────────────────────────────────────────
   const [pendingSlot, setPendingSlot] = useState(null);
   const clearTimerRef                 = useRef(null);
+  const pendingSlotRef                = useRef(null); // ✅ הוסף את ה-ref לסנכרון גרירה
 
   // ניקוי pending בשינוי view / תאריך
   useEffect(() => { setPendingSlot(null); }, [view, date]);
   useEffect(() => () => clearTimeout(clearTimerRef.current), []);
+
+  // ✅ סנכרון ה-ref בכל פעם ש-pendingSlot משתנה (למניעת stale closure ב-drag)
+  useEffect(() => {
+    pendingSlotRef.current = pendingSlot;
+  }, [pendingSlot]);
 
   // components עם SlotWrapper דינמי
   const calendarComponents = useMemo(() => ({
@@ -210,16 +216,30 @@ export default function CalendarView({
     onSelectEvent?.(event);
   }, [onSelectEvent]);
 
+  // ── ✅ חוסם המתיחות (Drag Guard) עם ה-Ref המתוקן ─────────────────────
+  const handleSelecting = useCallback(() => {
+    // בודק מול ה-ref כדי לקבל תמיד את הסטטוס המעודכן ביותר
+    return !!pendingSlotRef.current;
+  }, []);
+
   // ── Two-Tap Handler ─────────────────────────────────────────────────
   const handleSelectSlot = useCallback((slotInfo) => {
-    // בחודש — tap אחד מספיק
     if (view === 'month') {
       onSelectSlot?.(slotInfo);
       return;
     }
 
-    const key = slotKey(slotInfo.start);
     clearTimeout(clearTimerRef.current);
+
+    // אם המשתמש סיים *למתוח* את התור (גרירה) - נפתח את החלון מיד עם הטווח המלא
+    if (slotInfo.action === 'select') {
+      setPendingSlot(null);
+      onSelectSlot?.(slotInfo);
+      return;
+    }
+
+    // אם המשתמש *לחץ* (tap רגיל)
+    const key = slotKey(slotInfo.start);
 
     if (pendingSlot === key) {
       // Tap 2 — אותה משבצת → פתח מודל
@@ -292,9 +312,9 @@ export default function CalendarView({
         .rbc-events-container { pointer-events: none !important; }
         .rbc-event { pointer-events: auto !important; }
 
-        /* 2. hover רגיל */
+        /* 2. ✅ התיקון להובר! מחיל אותו רק בתוך עמודות הימים ולא בציר הזמן! */
         .rbc-time-slot { transition: background-color 0.15s ease; }
-        .rbc-time-slot:not(.cursor-not-allowed):hover {
+        .rbc-day-slot .rbc-time-slot:not(.cursor-not-allowed):not(.rbc-slot-pending):hover {
           background-color: rgba(229, 0, 126, 0.08) !important;
         }
 
@@ -377,17 +397,18 @@ export default function CalendarView({
         selectable={!!onSelectSlot}
         longPressThreshold={0}
         onSelectSlot={handleSelectSlot}
+        
+        /* ✅ הפונקציה המתוקנת שחוסמת גרירה עד שיש לחיצה ראשונה! */
+        onSelecting={handleSelecting}
+
         onSelectEvent={handleSelectEvent}
         onEventDrop={onEventDrop}
         onEventResize={onEventResize}
         resizable
         dayPropGetter={customDayPropGetter}
         slotPropGetter={customSlotPropGetter}
-        
-        /* ✅ חזרנו למבנה התקין כדי לשמור על היומן ישר ולמנוע דריסות! */
         step={15}
         timeslots={4}
-        
         min={minTime || DEFAULT_MIN}
         max={maxTime || DEFAULT_MAX}
         eventPropGetter={eventStyleGetter}
