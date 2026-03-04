@@ -15,7 +15,6 @@ const toDateStrLocal = (dateObj) => {
   return `${y}-${m}-${d}`;
 };
 
-// מפתח ייחודי למשבצת: "YYYY-MM-DD|HH:MM"
 const slotKey = (dateObj) => {
   const date = toDateStrLocal(dateObj);
   const hh   = String(dateObj.getHours()).padStart(2, '0');
@@ -23,7 +22,6 @@ const slotKey = (dateObj) => {
   return `${date}|${hh}:${mm}`;
 };
 
-// מחלץ "HH:MM" מתוך מפתח
 const timeFromKey = (key) => key?.split('|')[1] ?? '';
 
 const locales        = { he };
@@ -127,15 +125,13 @@ const DEFAULT_MIN = new Date(0, 0, 0, 7,  0);
 const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
 const CALENDAR_COMPONENTS = { event: CustomEventComponent };
 
-// ── ✅ SlotWrapper החכם — מנהל את המשבצות ואת הפוקוס בבטחה ────────────
+// ── SlotWrapper ────────────────────────────────────────────────────────────
 function makeSlotWrapper(pendingSlot) {
   return function SlotWrapper({ children, value }) {
     if (!value) return children;
 
-    const key      = slotKey(value);
-    const time     = timeFromKey(key);
-    
-    // האם זו בדיוק המשבצת ביום ובשעה שלחצו עליה?
+    const key            = slotKey(value);
+    const time           = timeFromKey(key);
     const isPendingExact = pendingSlot === key;
 
     if (!isPendingExact) return children;
@@ -146,8 +142,6 @@ function makeSlotWrapper(pendingSlot) {
       children: (
         <>
           {children.props.children ?? null}
-          
-          {/* הבועית מופיעה רק במשבצת הספציפית שלחצו עליה */}
           <div className="custom-pending-tooltip">
             {time} | לחצי שוב לקביעה ✓
             <div className="tooltip-arrow" />
@@ -174,25 +168,22 @@ export default function CalendarView({
   view,
   onView,
 }) {
-  // ── Two-Tap State ──────────────────────────────────────────────────────
   const [pendingSlot, setPendingSlot] = useState(null);
   const clearTimerRef                 = useRef(null);
 
-  // ניקוי pending בשינוי view / תאריך
   useEffect(() => { setPendingSlot(null); }, [view, date]);
   useEffect(() => () => clearTimeout(clearTimerRef.current), []);
 
-  // components עם SlotWrapper דינמי
   const calendarComponents = useMemo(() => ({
     ...CALENDAR_COMPONENTS,
     timeSlotWrapper: makeSlotWrapper(pendingSlot),
   }), [pendingSlot]);
 
   const events = useMemo(() => appointments.map((app) => {
-    const clientName   = app.customerName || 'לקוחה';
+    const clientName    = app.customerName || 'לקוחה';
     const treatmentName = app.title || app.serviceTitle || 'תור';
-    const isBlocked    = app.isBlocked === true || app.status === 'blocked';
-    const displayTitle = isBlocked
+    const isBlocked     = app.isBlocked === true || app.status === 'blocked';
+    const displayTitle  = isBlocked
       ? (app.title || '🔒 זמן חסום')
       : `${clientName} - ${treatmentName}`;
     return {
@@ -210,7 +201,6 @@ export default function CalendarView({
     onSelectEvent?.(event);
   }, [onSelectEvent]);
 
-  // ── Two-Tap Handler — לחיצות נקודתיות בלבד! ───────────────────────────
   const handleSelectSlot = useCallback((slotInfo) => {
     if (view === 'month') {
       onSelectSlot?.(slotInfo);
@@ -219,24 +209,17 @@ export default function CalendarView({
 
     clearTimeout(clearTimerRef.current);
 
-    // ✅ חוסם פעולות "select" שנובעות מגרירה - כדי שהיומן לא ייתקע בגלילה!
-    if (slotInfo.action === 'select') {
-      return; 
-    }
+    if (slotInfo.action === 'select') return;
 
-    // פעולת 'click' רגילה בלבד:
     const key = slotKey(slotInfo.start);
 
     if (pendingSlot === key) {
-      // Tap 2 — אותה משבצת → פתח מודל
       setPendingSlot(null);
-      // מקבעים את התור בדיוק ל-15 דקות מהלחיצה כדי למנוע טווחים ארוכים מבלבלים
       onSelectSlot?.({
-          ...slotInfo,
-          end: new Date(slotInfo.start.getTime() + 15 * 60000)
+        ...slotInfo,
+        end: new Date(slotInfo.start.getTime() + 15 * 60000),
       });
     } else {
-      // Tap 1 — משבצת חדשה → הצג tooltip
       setPendingSlot(key);
       clearTimerRef.current = setTimeout(() => setPendingSlot(null), 4000);
     }
@@ -251,16 +234,14 @@ export default function CalendarView({
   }, [businessHours, closedDays]);
 
   const customDayPropGetter = useCallback((dateObj) => {
-    if (isDayClosed(dateObj)) {
+    if (isDayClosed(dateObj))
       return { className: '!bg-gray-100 dark:!bg-gray-800/80 cursor-not-allowed' };
-    }
     return {};
   }, [isDayClosed]);
 
-  // עיצוב המשבצות הסגורות
   const customSlotPropGetter = useCallback((dateObj) => {
-    const isClosed  = isDayClosed(dateObj);
-    if (isClosed)   return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
+    if (isDayClosed(dateObj))
+      return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
     return {};
   }, [isDayClosed]);
 
@@ -302,33 +283,33 @@ export default function CalendarView({
         .rbc-events-container { pointer-events: none !important; }
         .rbc-event { pointer-events: auto !important; }
 
-        /* 2. ✅ התיקון להובר! מחיל אותו רק בתוך עמודות הימים ולא בציר הזמן! */
+        /* 2. hover — מחשב בלבד */
         .rbc-time-slot { transition: background-color 0.15s ease; }
-        .rbc-day-slot .rbc-time-slot:not(.cursor-not-allowed):not(.rbc-slot-pending):hover {
-          background-color: rgba(229, 0, 126, 0.08) !important;
+        @media (hover: hover) {
+          .rbc-day-slot .rbc-time-slot:not(.cursor-not-allowed):not(.rbc-slot-pending):hover {
+            background-color: rgba(229, 0, 126, 0.08) !important;
+          }
         }
 
-        /* 3. משבצת pending — רקע + מסגרת + pulse */
+        /* 3. משבצת pending */
         .rbc-slot-pending {
           background-color: rgba(229, 0, 126, 0.12) !important;
           box-shadow: inset 0 0 0 2px rgba(229, 0, 126, 0.7) !important;
           cursor: pointer !important;
-          z-index: 50; /* מקפיץ את המשבצת קדימה מעל לתורים */
+          z-index: 50;
         }
         @keyframes slotPulse {
           0%, 100% { box-shadow: inset 0 0 0 2px rgba(229,0,126,0.5); }
           50%      { box-shadow: inset 0 0 0 2px rgba(229,0,126,1);   }
         }
-        .rbc-slot-pending {
-          animation: slotPulse 1.4s ease-in-out infinite;
-        }
+        .rbc-slot-pending { animation: slotPulse 1.4s ease-in-out infinite; }
 
-        /* 4. הבועית הוורודה - ממורכזת */
+        /* 4. בועית */
         .custom-pending-tooltip {
           position: absolute;
           bottom: calc(100% + 4px);
           right: 50%;
-          transform: translateX(50%); /* ממורכז בדיוק באמצע המשבצת */
+          transform: translateX(50%);
           background: #e5007e;
           color: white;
           font-size: 11px;
@@ -337,7 +318,7 @@ export default function CalendarView({
           border-radius: 6px;
           white-space: nowrap;
           pointer-events: none;
-          z-index: 9999; /* תמיד מעל הכל */
+          z-index: 9999;
           direction: rtl;
           box-shadow: 0 2px 10px rgba(229,0,126,0.35);
           line-height: 1.5;
@@ -347,25 +328,25 @@ export default function CalendarView({
           top: 100%;
           right: 50%;
           transform: translateX(50%);
-          width: 0;
-          height: 0;
+          width: 0; height: 0;
           border-left: 5px solid transparent;
           border-right: 5px solid transparent;
           border-top: 5px solid #e5007e;
         }
 
-        /* מניעת הופעת הבועית בתוך ציר הזמן */
-        .rbc-time-gutter .custom-pending-tooltip {
-            display: none !important;
-        }
+        /* 5. מסתיר בועית בציר הזמן */
+        .rbc-time-gutter .custom-pending-tooltip { display: none !important; }
 
-        /* 5. hover על יום שלם בחודש */
+        /* 6. מסתיר ריבוע גרירה כחול */
+        .rbc-slot-selection { display: none !important; pointer-events: none !important; }
+
+        /* 7. hover חודש */
         .rbc-day-bg:not(.cursor-not-allowed) { transition: background-color 0.15s ease; }
         .rbc-day-bg:not(.cursor-not-allowed):hover {
           background-color: rgba(229, 0, 126, 0.08) !important;
         }
 
-        /* 6. מאפשר overflow כדי שהבועית לא תיחתך */
+        /* 8. overflow לבועית */
         .rbc-time-slot { overflow: visible !important; }
         .rbc-timeslot-group { overflow: visible !important; }
         .rbc-time-content { overflow-x: hidden !important; }
@@ -384,14 +365,8 @@ export default function CalendarView({
         view={view}
         onView={onView}
         views={VIEWS}
-        
-        /* ✅ התיקון הקריטי: מאפשר לחיצות! */
         selectable={!!onSelectSlot}
-        
-        /* ✅ חוסם גרירה ומתיחה (Drag to select) לחלוטין - מאפשר גלילה חופשית בנייד/עכבר! */
         onSelecting={() => false}
-        
-        longPressThreshold={0}
         onSelectSlot={handleSelectSlot}
         onSelectEvent={handleSelectEvent}
         onEventDrop={onEventDrop}
