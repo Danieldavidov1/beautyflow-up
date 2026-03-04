@@ -289,6 +289,73 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
   );
 }
 
+// ── NotesAccordion ─────────────────────────────────────────────────────────
+function NotesAccordion({ value, onChange }) {
+  const hasContent  = value && value.trim().length > 0;
+  // הפיתרון הנקי: הסטטוס נקבע רק פעם אחת ברגע שהקומפוננטה נוצרת
+  const [isOpen, setIsOpen] = useState(hasContent);
+  const contentRef  = useRef(null);
+  const textareaRef = useRef(null);
+
+  // GSAP אנימציה בפתיחה/סגירה
+  useEffect(() => {
+    if (!contentRef.current) return;
+    if (isOpen) {
+      gsap.fromTo(
+        contentRef.current,
+        { height: 0, opacity: 0 },
+        { height: 'auto', opacity: 1, duration: 0.28, ease: 'power2.out',
+          onComplete: () => textareaRef.current?.focus() }
+      );
+    } else {
+      gsap.to(contentRef.current, {
+        height: 0, opacity: 0, duration: 0.22, ease: 'power2.in',
+      });
+    }
+  }, [isOpen]);
+
+  return (
+    <div>
+      {/* כפתור toggle */}
+      <button
+        type="button"
+        onClick={() => setIsOpen((p) => !p)}
+        className="flex items-center gap-1.5 text-xs font-medium text-gray-400
+                   hover:text-[#e5007e] transition-colors group"
+      >
+        <span
+          className="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600
+                     group-hover:border-[#e5007e] flex items-center justify-center
+                     transition-colors text-gray-400 group-hover:text-[#e5007e]"
+          style={{ fontSize: '10px', lineHeight: 1 }}
+        >
+          {isOpen ? '−' : '+'}
+        </span>
+        {isOpen
+          ? 'הסתר הערות'
+          : hasContent
+            ? '📝 יש הערה לתור (לחצי לעריכה)'
+            : '➕ הוסף הערות לתור (אופציונלי)'}
+      </button>
+
+      {/* תוכן — נסתר כברירת מחדל */}
+      <div
+        ref={contentRef}
+        style={{ height: 0, overflow: 'hidden', opacity: 0 }}
+      >
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="הערות לתור — חומרים, רגישויות, דגשים..."
+          rows={3}
+          className={`${inputCls} resize-none mt-2`}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── AppointmentModal ───────────────────────────────────────────────────────
 function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, businessHours, closedDays, setCurrentPage, onCompleteClick, onDeleteClick }) {
   const { customers, addCustomer } = useCustomers();
@@ -524,18 +591,13 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
           {!businessHoursCheck.allowed && (<div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50"><AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" /><div><p className="text-xs font-semibold text-amber-700 dark:text-amber-400">מחוץ לשעות הפעילות</p><p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{businessHoursCheck.reason} — ניתן לשמור בכל זאת</p></div></div>)}
           {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (<p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 pr-1 flex items-center gap-1"><Clock className="w-3 h-3" /> משך: {(() => { const [sh, sm] = formData.startTime.split(':').map(Number); const [eh, em] = formData.endTime.split(':').map(Number); const diff = (eh * 60 + em) - (sh * 60 + sm); return diff >= 60 ? `${Math.floor(diff / 60)}:${String(diff % 60).padStart(2, '0')} שעות` : `${diff} דקות`; })()}</p>)}
           {isEditing && (<div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">סטטוס</label><select value={formData.status} onChange={(e) => set('status', e.target.value)} className={inputCls}><option value="scheduled">מתוכנן</option><option value="completed">הושלם</option><option value="cancelled">בוטל</option></select></div>)}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
-              📝 הערות לתור
-            </label>
-            <textarea
-              value={formData.notes || ''}
-              onChange={(e) => set('notes', e.target.value)}
-              placeholder="הערות לתור (אופציונלי)..."
-              rows={3}
-              className={`${inputCls} resize-none`}
-            />
-          </div>
+          
+          {/* ✅ כאן שילבנו את קומפוננטת האקורדיון של ההערות */}
+          <NotesAccordion
+            value={formData.notes || ''}
+            onChange={(val) => set('notes', val)}
+          />
+
           <div className="pt-2 flex flex-col gap-3">
             {isEditing && formData.status !== 'completed' && (
               <button

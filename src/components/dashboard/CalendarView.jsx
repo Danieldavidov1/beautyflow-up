@@ -1,5 +1,5 @@
 // src/components/dashboard/CalendarView.jsx
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
@@ -7,7 +7,7 @@ import { he } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 
-// ✅ helper פנימי לקבלת מחרוזת תאריך YYYY-MM-DD
+// ── Helpers ────────────────────────────────────────────────────────────────
 const toDateStrLocal = (dateObj) => {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -15,21 +15,25 @@ const toDateStrLocal = (dateObj) => {
   return `${y}-${m}-${d}`;
 };
 
-const locales = { he };
-const startOfWeekFn = (date) => startOfWeek(date, { weekStartsOn: 0 });
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: startOfWeekFn,
-  getDay,
-  locales,
-});
+// מפתח ייחודי למשבצת: "YYYY-MM-DD|HH:MM"
+const slotKey = (dateObj) => {
+  const date = toDateStrLocal(dateObj);
+  const hh   = String(dateObj.getHours()).padStart(2, '0');
+  const mm   = String(dateObj.getMinutes()).padStart(2, '0');
+  return `${date}|${hh}:${mm}`;
+};
 
-// ✅ פתרון הקסם לבאג של Vite והייצוא הישן
-const withDnD = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
-const DnDCalendar = withDnD(Calendar);
+// מחלץ "HH:MM" מתוך מפתח
+const timeFromKey = (key) => key?.split('|')[1] ?? '';
 
-// ── Custom Event Component עם אייקונים ─────────────────────────────────
+const locales        = { he };
+const startOfWeekFn  = (date) => startOfWeek(date, { weekStartsOn: 0 });
+const localizer      = dateFnsLocalizer({ format, parse, startOfWeek: startOfWeekFn, getDay, locales });
+
+const withDnD      = typeof withDragAndDrop === 'function' ? withDragAndDrop : withDragAndDrop.default;
+const DnDCalendar  = withDnD(Calendar);
+
+// ── Custom Event Component ─────────────────────────────────────────────────
 function CustomEventComponent({ event }) {
   const isBlocked = event.isBlocked;
   const hasNotes  = !!event.resource?.notes;
@@ -38,75 +42,46 @@ function CustomEventComponent({ event }) {
   return (
     <div
       style={{
-        display:        'flex',
-        alignItems:     'center',
-        gap:            '3px',
-        overflow:       'hidden',
-        width:          '100%',
-        fontSize:       '11px',
-        fontWeight:     'bold',
-        lineHeight:     '1.3',
-        direction:      'rtl',
+        display: 'flex', alignItems: 'center', gap: '3px',
+        overflow: 'hidden', width: '100%',
+        fontSize: '11px', fontWeight: 'bold', lineHeight: '1.3', direction: 'rtl',
       }}
       title={event.title}
     >
-      {/* אייקון הערות תור */}
       {!isBlocked && hasNotes && (
-        <span
-          style={{
-            display:        'inline-flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            flexShrink:     0,
-            width:          '12px',
-            height:         '12px',
-            opacity:        0.9,
-          }}
-          title="יש הערה לתור"
-        >
+        <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
+                       flexShrink:0, width:'12px', height:'12px', opacity:0.9 }}
+              title="יש הערה לתור">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-               style={{ width: '100%', height: '100%' }}>
+               style={{ width:'100%', height:'100%' }}>
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </span>
       )}
-
-      {/* אייקון הזמנה אונליין */}
       {!isBlocked && isOnline && (
-        <span
-          style={{
-            display:        'inline-flex',
-            alignItems:     'center',
-            justifyContent: 'center',
-            flexShrink:     0,
-            width:          '11px',
-            height:         '11px',
-            opacity:        0.9,
-          }}
-          title="תור מהאתר"
-        >
+        <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
+                       flexShrink:0, width:'11px', height:'11px', opacity:0.9 }}
+              title="תור מהאתר">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-               style={{ width: '100%', height: '100%' }}>
+               style={{ width:'100%', height:'100%' }}>
             <circle cx="12" cy="12" r="10" />
             <line x1="2" y1="12" x2="22" y2="12" />
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
         </span>
       )}
-
-      {/* כותרת */}
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
         {event.title}
       </span>
     </div>
   );
 }
 
+// ── eventStyleGetter ───────────────────────────────────────────────────────
 const eventStyleGetter = (event) => {
   const isBlocked = event.isBlocked;
-
   let backgroundColor;
   if (isBlocked) {
     backgroundColor = event.title === 'יום סגור' ? '#9ca3af' : '#f97316';
@@ -115,7 +90,6 @@ const eventStyleGetter = (event) => {
   } else {
     backgroundColor = event.resource?.color || '#e5007e';
   }
-
   return {
     style: {
       backgroundColor,
@@ -133,6 +107,7 @@ const eventStyleGetter = (event) => {
   };
 };
 
+// ── Helpers ────────────────────────────────────────────────────────────────
 const createDate = (dateStr, timeStr) => {
   if (!dateStr || !timeStr) return new Date();
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -141,26 +116,49 @@ const createDate = (dateStr, timeStr) => {
 };
 
 const MESSAGES = {
-  week:             'שבוע',
-  day:              'יום',
-  month:            'חודש',
-  previous:         'הקודם',
-  next:             'הבא',
-  today:            'היום',
-  agenda:           'סדר יום',
-  noEventsInRange:  'אין תורים בטווח הזה.',
-  showMore:         (count) => `+ עוד ${count}`,
+  week: 'שבוע', day: 'יום', month: 'חודש',
+  previous: 'הקודם', next: 'הבא', today: 'היום',
+  agenda: 'סדר יום', noEventsInRange: 'אין תורים בטווח הזה.',
+  showMore: (count) => `+ עוד ${count}`,
 };
 
-const VIEWS = ['month', 'week', 'day'];
-
-const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
+const VIEWS       = ['month', 'week', 'day'];
+const DEFAULT_MIN = new Date(0, 0, 0, 7,  0);
 const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
+const CALENDAR_COMPONENTS = { event: CustomEventComponent };
 
-const CALENDAR_COMPONENTS = {
-  event: CustomEventComponent,
-};
+// ── ✅ SlotWrapper החכם — מנהל את המשבצות ואת הפוקוס בבטחה ────────────
+function makeSlotWrapper(pendingSlot) {
+  return function SlotWrapper({ children, value }) {
+    if (!value) return children;
 
+    const key      = slotKey(value);
+    const time     = timeFromKey(key);
+    
+    // האם זו בדיוק המשבצת ביום ובשעה שלחצו עליה?
+    const isPendingExact = pendingSlot === key;
+
+    if (!isPendingExact) return children;
+
+    return React.cloneElement(children, {
+      className: `${children.props.className || ''} rbc-slot-pending`.trim(),
+      style: { ...children.props.style, position: 'relative', overflow: 'visible' },
+      children: (
+        <>
+          {children.props.children ?? null}
+          
+          {/* הבועית מופיעה רק במשבצת הספציפית שלחצו עליה */}
+          <div className="custom-pending-tooltip">
+            {time} | לחצי שוב לקביעה ✓
+            <div className="tooltip-arrow" />
+          </div>
+        </>
+      )
+    });
+  };
+}
+
+// ── CalendarView ───────────────────────────────────────────────────────────
 export default function CalendarView({
   appointments = [],
   onSelectEvent,
@@ -176,34 +174,63 @@ export default function CalendarView({
   view,
   onView,
 }) {
-  const events = useMemo(() => {
-    return appointments.map((app) => {
-      const clientName    = app.customerName || 'לקוחה';
-      const treatmentName = app.title || app.serviceTitle || 'תור';
-      const isBlocked     = app.isBlocked === true || app.status === 'blocked';
-      const displayTitle  = isBlocked
-        ? (app.title || '🔒 זמן חסום')
-        : `${clientName} - ${treatmentName}`;
+  // ── Two-Tap State ──────────────────────────────────────────────────────
+  const [pendingSlot, setPendingSlot] = useState(null);
+  const clearTimerRef                 = useRef(null);
 
-      return {
-        id:        app.id,
-        title:     displayTitle,
-        start:     createDate(app.date, app.startTime),
-        end:       createDate(app.date, app.endTime),
-        isBlocked,
-        resource:  app,
-      };
-    });
-  }, [appointments]);
+  // ניקוי pending בשינוי view / תאריך
+  useEffect(() => { setPendingSlot(null); }, [view, date]);
+  useEffect(() => () => clearTimeout(clearTimerRef.current), []);
+
+  // components עם SlotWrapper דינמי
+  const calendarComponents = useMemo(() => ({
+    ...CALENDAR_COMPONENTS,
+    timeSlotWrapper: makeSlotWrapper(pendingSlot),
+  }), [pendingSlot]);
+
+  const events = useMemo(() => appointments.map((app) => {
+    const clientName   = app.customerName || 'לקוחה';
+    const treatmentName = app.title || app.serviceTitle || 'תור';
+    const isBlocked    = app.isBlocked === true || app.status === 'blocked';
+    const displayTitle = isBlocked
+      ? (app.title || '🔒 זמן חסום')
+      : `${clientName} - ${treatmentName}`;
+    return {
+      id: app.id, title: displayTitle,
+      start: createDate(app.date, app.startTime),
+      end:   createDate(app.date, app.endTime),
+      isBlocked, resource: app,
+    };
+  }), [appointments]);
 
   const handleSelectEvent = useCallback((event) => {
     if (event.isBlocked) return;
+    setPendingSlot(null);
+    clearTimeout(clearTimerRef.current);
     onSelectEvent?.(event);
   }, [onSelectEvent]);
 
+  // ── Two-Tap Handler ─────────────────────────────────────────────────
   const handleSelectSlot = useCallback((slotInfo) => {
-    onSelectSlot?.(slotInfo);
-  }, [onSelectSlot]);
+    // בחודש — tap אחד מספיק
+    if (view === 'month') {
+      onSelectSlot?.(slotInfo);
+      return;
+    }
+
+    const key = slotKey(slotInfo.start);
+    clearTimeout(clearTimerRef.current);
+
+    if (pendingSlot === key) {
+      // Tap 2 — אותה משבצת → פתח מודל
+      setPendingSlot(null);
+      onSelectSlot?.(slotInfo);
+    } else {
+      // Tap 1 — משבצת חדשה → הצג tooltip
+      setPendingSlot(key);
+      clearTimerRef.current = setTimeout(() => setPendingSlot(null), 4000);
+    }
+  }, [view, pendingSlot, onSelectSlot]);
 
   const isDayClosed = useCallback((dateObj) => {
     if (!dateObj) return false;
@@ -220,10 +247,10 @@ export default function CalendarView({
     return {};
   }, [isDayClosed]);
 
+  // עיצוב המשבצות הסגורות
   const customSlotPropGetter = useCallback((dateObj) => {
-    if (isDayClosed(dateObj)) {
-      return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
-    }
+    const isClosed  = isDayClosed(dateObj);
+    if (isClosed)   return { className: '!bg-gray-100/50 dark:!bg-gray-800/50 cursor-not-allowed' };
     return {};
   }, [isDayClosed]);
 
@@ -260,36 +287,79 @@ export default function CalendarView({
       dir="rtl"
       style={{ height: calendarHeight }}
     >
-      {/* פתרון CSS טהור, חסין ומוחלט להובר ביומן */}
-      <style>
-        {`
-          /* 1. מונע מהשכבה השקופה של התורים לחסום את העכבר על משבצות ריקות */
-          .rbc-events-container {
-            pointer-events: none !important;
-          }
-          /* 2. מחזיר את היכולת ללחוץ על התורים עצמם */
-          .rbc-event {
-            pointer-events: auto !important;
-          }
+      <style>{`
+        /* 1. מונע מהשכבה השקופה לחסום לחיצות */
+        .rbc-events-container { pointer-events: none !important; }
+        .rbc-event { pointer-events: auto !important; }
 
-          /* 3. משבצת 15 דקות ספציפית ביומן יומי/שבועי */
-          .rbc-time-slot {
-            transition: all 0.15s ease;
-          }
-          .rbc-time-slot:not(.cursor-not-allowed):hover {
-            background-color: rgba(229, 0, 126, 0.15) !important;
-            box-shadow: inset 0 0 0 1px rgba(229, 0, 126, 0.3) !important;
-          }
+        /* 2. hover רגיל */
+        .rbc-time-slot { transition: background-color 0.15s ease; }
+        .rbc-time-slot:not(.cursor-not-allowed):hover {
+          background-color: rgba(229, 0, 126, 0.08) !important;
+        }
 
-          /* 4. משבצת יום שלם ביומן חודשי */
-          .rbc-day-bg:not(.cursor-not-allowed) {
-            transition: background-color 0.15s ease;
-          }
-          .rbc-day-bg:not(.cursor-not-allowed):hover {
-            background-color: rgba(229, 0, 126, 0.08) !important;
-          }
-        `}
-      </style>
+        /* 3. משבצת pending — רקע + מסגרת + pulse */
+        .rbc-slot-pending {
+          background-color: rgba(229, 0, 126, 0.12) !important;
+          box-shadow: inset 0 0 0 2px rgba(229, 0, 126, 0.7) !important;
+          cursor: pointer !important;
+          z-index: 50; /* מקפיץ את המשבצת קדימה מעל לתורים */
+        }
+        @keyframes slotPulse {
+          0%, 100% { box-shadow: inset 0 0 0 2px rgba(229,0,126,0.5); }
+          50%      { box-shadow: inset 0 0 0 2px rgba(229,0,126,1);   }
+        }
+        .rbc-slot-pending {
+          animation: slotPulse 1.4s ease-in-out infinite;
+        }
+
+        /* 4. הבועית הוורודה - ממורכזת */
+        .custom-pending-tooltip {
+          position: absolute;
+          bottom: calc(100% + 4px);
+          right: 50%;
+          transform: translateX(50%); /* ממורכז בדיוק באמצע המשבצת */
+          background: #e5007e;
+          color: white;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 6px;
+          white-space: nowrap;
+          pointer-events: none;
+          z-index: 9999; /* תמיד מעל הכל */
+          direction: rtl;
+          box-shadow: 0 2px 10px rgba(229,0,126,0.35);
+          line-height: 1.5;
+        }
+        .tooltip-arrow {
+          position: absolute;
+          top: 100%;
+          right: 50%;
+          transform: translateX(50%);
+          width: 0;
+          height: 0;
+          border-left: 5px solid transparent;
+          border-right: 5px solid transparent;
+          border-top: 5px solid #e5007e;
+        }
+
+        /* מניעת הופעת הבועית בתוך ציר הזמן */
+        .rbc-time-gutter .custom-pending-tooltip {
+            display: none !important;
+        }
+
+        /* 5. hover על יום שלם בחודש */
+        .rbc-day-bg:not(.cursor-not-allowed) { transition: background-color 0.15s ease; }
+        .rbc-day-bg:not(.cursor-not-allowed):hover {
+          background-color: rgba(229, 0, 126, 0.08) !important;
+        }
+
+        /* 6. מאפשר overflow כדי שהבועית לא תיחתך */
+        .rbc-time-slot { overflow: visible !important; }
+        .rbc-timeslot-group { overflow: visible !important; }
+        .rbc-time-content { overflow-x: hidden !important; }
+      `}</style>
 
       <DnDCalendar
         localizer={localizer}
@@ -305,7 +375,6 @@ export default function CalendarView({
         onView={onView}
         views={VIEWS}
         selectable={!!onSelectSlot}
-        // ✅ תיקון בעיה 4 — לחיצה רגילה מספיקה
         longPressThreshold={0}
         onSelectSlot={handleSelectSlot}
         onSelectEvent={handleSelectEvent}
@@ -314,12 +383,15 @@ export default function CalendarView({
         resizable
         dayPropGetter={customDayPropGetter}
         slotPropGetter={customSlotPropGetter}
+        
+        /* ✅ חזרנו למבנה התקין כדי לשמור על היומן ישר ולמנוע דריסות! */
         step={15}
         timeslots={4}
+        
         min={minTime || DEFAULT_MIN}
         max={maxTime || DEFAULT_MAX}
         eventPropGetter={eventStyleGetter}
-        components={CALENDAR_COMPONENTS}
+        components={calendarComponents}
         messages={MESSAGES}
         popup
         popupOffset={10}
