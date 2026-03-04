@@ -177,16 +177,10 @@ export default function CalendarView({
   // ── Two-Tap State ──────────────────────────────────────────────────────
   const [pendingSlot, setPendingSlot] = useState(null);
   const clearTimerRef                 = useRef(null);
-  const pendingSlotRef                = useRef(null); // ✅ הוסף את ה-ref לסנכרון גרירה
 
   // ניקוי pending בשינוי view / תאריך
   useEffect(() => { setPendingSlot(null); }, [view, date]);
   useEffect(() => () => clearTimeout(clearTimerRef.current), []);
-
-  // ✅ סנכרון ה-ref בכל פעם ש-pendingSlot משתנה (למניעת stale closure ב-drag)
-  useEffect(() => {
-    pendingSlotRef.current = pendingSlot;
-  }, [pendingSlot]);
 
   // components עם SlotWrapper דינמי
   const calendarComponents = useMemo(() => ({
@@ -216,13 +210,7 @@ export default function CalendarView({
     onSelectEvent?.(event);
   }, [onSelectEvent]);
 
-  // ── ✅ חוסם המתיחות (Drag Guard) עם ה-Ref המתוקן ─────────────────────
-  const handleSelecting = useCallback(() => {
-    // בודק מול ה-ref כדי לקבל תמיד את הסטטוס המעודכן ביותר
-    return !!pendingSlotRef.current;
-  }, []);
-
-  // ── Two-Tap Handler ─────────────────────────────────────────────────
+  // ── Two-Tap Handler — לחיצות נקודתיות בלבד! ───────────────────────────
   const handleSelectSlot = useCallback((slotInfo) => {
     if (view === 'month') {
       onSelectSlot?.(slotInfo);
@@ -231,20 +219,22 @@ export default function CalendarView({
 
     clearTimeout(clearTimerRef.current);
 
-    // אם המשתמש סיים *למתוח* את התור (גרירה) - נפתח את החלון מיד עם הטווח המלא
+    // ✅ חוסם פעולות "select" שנובעות מגרירה - כדי שהיומן לא ייתקע בגלילה!
     if (slotInfo.action === 'select') {
-      setPendingSlot(null);
-      onSelectSlot?.(slotInfo);
-      return;
+      return; 
     }
 
-    // אם המשתמש *לחץ* (tap רגיל)
+    // פעולת 'click' רגילה בלבד:
     const key = slotKey(slotInfo.start);
 
     if (pendingSlot === key) {
       // Tap 2 — אותה משבצת → פתח מודל
       setPendingSlot(null);
-      onSelectSlot?.(slotInfo);
+      // מקבעים את התור בדיוק ל-15 דקות מהלחיצה כדי למנוע טווחים ארוכים מבלבלים
+      onSelectSlot?.({
+          ...slotInfo,
+          end: new Date(slotInfo.start.getTime() + 15 * 60000)
+      });
     } else {
       // Tap 1 — משבצת חדשה → הצג tooltip
       setPendingSlot(key);
@@ -394,13 +384,15 @@ export default function CalendarView({
         view={view}
         onView={onView}
         views={VIEWS}
+        
+        /* ✅ התיקון הקריטי: מאפשר לחיצות! */
         selectable={!!onSelectSlot}
+        
+        /* ✅ חוסם גרירה ומתיחה (Drag to select) לחלוטין - מאפשר גלילה חופשית בנייד/עכבר! */
+        onSelecting={() => false}
+        
         longPressThreshold={0}
         onSelectSlot={handleSelectSlot}
-        
-        /* ✅ הפונקציה המתוקנת שחוסמת גרירה עד שיש לחיצה ראשונה! */
-        onSelecting={handleSelecting}
-
         onSelectEvent={handleSelectEvent}
         onEventDrop={onEventDrop}
         onEventResize={onEventResize}
