@@ -6,7 +6,9 @@ import {
   doc, getDoc, addDoc, serverTimestamp,
 } from 'firebase/firestore';
 
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 export function toMin(timeStr) {
   if (!timeStr) return 0;
@@ -14,14 +16,17 @@ export function toMin(timeStr) {
   return h * 60 + m;
 }
 
+
 export function toTimeStr(mins) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
+
 
 export function parseDateStr(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d, 12, 0, 0);
 }
+
 
 export function toDateStr(dateObj) {
   const y = dateObj.getFullYear();
@@ -30,18 +35,17 @@ export function toDateStr(dateObj) {
   return `${y}-${m}-${d}`;
 }
 
-// ── 3. וולידציה מעודכנת לתמיכה ב-multi-service (תואמת ל-Firebase) ───
+
+// ── Validation ────────────────────────────────────────────────────────────────
 function validateBookingPayload(data) {
   const title = data.serviceTitle || data.title;
   if (!title || typeof title !== 'string' || !title.trim()) {
     throw new Error('יש לבחור לפחות טיפול אחד');
   }
-  
   const duration = data.serviceDuration || data.duration;
   if (!duration || Number(duration) <= 0) {
     throw new Error('משך הטיפול לא תקין');
   }
-  
   if (!data.date || data.date.length !== 10) {
     throw new Error('תאריך לא תקין');
   }
@@ -59,8 +63,8 @@ function validateBookingPayload(data) {
   }
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
 
+// ── Hook ──────────────────────────────────────────────────────────────────────
 export function useBookingPage(providerId) {
 
   const [providerSettings, setProviderSettings] = useState(null);
@@ -70,6 +74,7 @@ export function useBookingPage(providerId) {
   const [bookedSlots,      setBookedSlots]      = useState([]);
   const [loadingSlots,     setLoadingSlots]     = useState(false);
   const [submitting,       setSubmitting]       = useState(false);
+
 
   // ── 1. טעינה ראשונית ────────────────────────────────────────────
   useEffect(() => {
@@ -113,7 +118,10 @@ export function useBookingPage(providerId) {
     return () => { cancelled = true; };
   }, [providerId]);
 
-  // ── 2. שליפת תורים תפוסים ───────────────────────────────────────
+
+  // ── 2. שליפת תורים תפוסים וחסומים ─────────────────────────────
+  // ✅ תיקון בעיה 2: שאילתה אחת שמחזירה גם תורים רגילים וגם חסימות
+  // חסכון בעלות שרת: query אחד במקום שניים, עם OR על status
   const fetchBookedSlots = useCallback(async (selectedDate) => {
     if (!providerId || !selectedDate) return [];
 
@@ -123,7 +131,7 @@ export function useBookingPage(providerId) {
         collection(db, 'appointments'),
         where('userId', '==', providerId),
         where('date',   '==', selectedDate),
-        where('status', 'in', ['scheduled', 'completed']),
+        where('status', 'in', ['scheduled', 'completed', 'blocked']), // ✅ נוסף 'blocked'
       ));
 
       const slots = aptSnap.docs.map((d) => d.data());
@@ -138,7 +146,9 @@ export function useBookingPage(providerId) {
     }
   }, [providerId]);
 
+
   // ── 3. חישוב שעות פנויות ────────────────────────────────────────
+  // ✅ תיקון בעיה 2 (חלק ב): חסימות "כל היום" (00:00–23:59) חוסמות את כל היום
   const calculateAvailableSlots = useCallback((selectedDate, serviceDuration, currentBookedSlots) => {
     if (!providerSettings || !selectedDate || !serviceDuration) return [];
 
@@ -155,6 +165,12 @@ export function useBookingPage(providerId) {
     const nowMs      = Date.now();
     const slotsToUse = currentBookedSlots ?? bookedSlots;
 
+    // ✅ בדיקת חסימת יום שלם (isAllDay) — אם קיימת, מחזירים מיד מערך ריק
+    const isFullDayBlocked = slotsToUse.some(
+      (apt) => apt.isBlocked && apt.startTime === '00:00' && apt.endTime === '23:59'
+    );
+    if (isFullDayBlocked) return [];
+
     const slots = [];
 
     for (let cur = openMin; cur + duration <= closeMin; cur += slotStep) {
@@ -165,7 +181,7 @@ export function useBookingPage(providerId) {
       const hasOverlap = slotsToUse.some((apt) => {
         const aptStart = toMin(apt.startTime);
         const aptEnd   = toMin(apt.endTime);
-        return cur < aptEnd && slotEnd > aptStart;
+        return cur < aptEnd && slotEnd > aptStart; // ✅ עובד גם על blocked
       });
 
       if (!hasOverlap) slots.push(toTimeStr(cur));
@@ -173,6 +189,7 @@ export function useBookingPage(providerId) {
 
     return slots;
   }, [providerSettings, bookedSlots]);
+
 
   // ── 4. שליחת בקשה ───────────────────────────────────────────────
   const submitBookingRequest = useCallback(async (bookingData) => {
@@ -198,6 +215,7 @@ export function useBookingPage(providerId) {
       setSubmitting(false);
     }
   }, [providerId, submitting]);
+
 
   return {
     providerSettings,

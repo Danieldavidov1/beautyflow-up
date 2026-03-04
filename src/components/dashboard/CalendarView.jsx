@@ -305,6 +305,8 @@ export default function CalendarView({
         onView={onView}
         views={VIEWS}
         selectable={!!onSelectSlot}
+        // ✅ תיקון בעיה 4 — לחיצה רגילה מספיקה
+        longPressThreshold={0}
         onSelectSlot={handleSelectSlot}
         onSelectEvent={handleSelectEvent}
         onEventDrop={onEventDrop}

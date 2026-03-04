@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import gsap from 'gsap';
 
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -26,6 +27,7 @@ function formatDate(dateStr) {
     .replace(',', '');
 }
 
+
 function sanitizePhone(raw = '') {
   let num = raw.replace(/[\s\-().]/g, '');
   if (num.startsWith('0')) num = '972' + num.slice(1);
@@ -33,11 +35,13 @@ function sanitizePhone(raw = '') {
   return num;
 }
 
+
 const CUSTOMER_TYPE_LABELS = {
   vip:     { label: 'VIP',   cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
   new:     { label: 'חדשה',  cls: 'bg-green-100  text-green-700  dark:bg-green-900/30  dark:text-green-400'  },
   regular: { label: 'רגילה', cls: 'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-400'   },
 };
+
 
 const STATUS_STYLES = {
   scheduled: { label: 'מתוכנן', cls: 'bg-blue-100   text-blue-700   dark:bg-blue-900/30   dark:text-blue-400'   },
@@ -45,6 +49,7 @@ const STATUS_STYLES = {
   cancelled:  { label: 'בוטל',  cls: 'bg-red-100    text-red-600    dark:bg-red-900/30    dark:text-red-400'    },
   pending:    { label: 'ממתין', cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
 };
+
 
 // ── זיהוי סוג פעולה אוטומטית ישנה (לפני ה-Refactor) ─────────────────────
 function detectAutoType(title = '') {
@@ -54,7 +59,7 @@ function detectAutoType(title = '') {
   return null;
 }
 
-// מטא-דאטה לאייקון/עיצוב לפי eventType מ-activity_logs
+
 const ACTIVITY_META = {
   payment: {
     Icon:        Wallet,
@@ -88,7 +93,7 @@ const ACTIVITY_META = {
   },
 };
 
-// Fallback למקרה של eventType לא מוכר
+
 const ACTIVITY_META_DEFAULT = {
   Icon:       Activity,
   iconBg:     'bg-gray-50 dark:bg-gray-700/50',
@@ -100,6 +105,7 @@ const ACTIVITY_META_DEFAULT = {
   badgeLabel: 'פעולה',
 };
 
+
 const EMPTY_TREATMENT = {
   title: '',
   date:  new Date().toISOString().split('T')[0],
@@ -107,13 +113,16 @@ const EMPTY_TREATMENT = {
   notes: '',
 };
 
+
 // ── Hook: useCustomerAppointments ──────────────────────────────────────────
 function useCustomerAppointments(customerId) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading]           = useState(true);
 
+
   useEffect(() => {
     if (!customerId) { setAppointments([]); setLoading(false); return; }
+
 
     const q = query(
       collection(db, 'appointments'),
@@ -122,6 +131,7 @@ function useCustomerAppointments(customerId) {
       orderBy('date',      'desc'),
       orderBy('startTime', 'desc')
     );
+
 
     const unsub = onSnapshot(q,
       (snap) => {
@@ -136,13 +146,16 @@ function useCustomerAppointments(customerId) {
     return () => unsub();
   }, [customerId]);
 
+
   return { appointments, loading };
 }
+
 
 // ── DeleteTreatmentModal ───────────────────────────────────────────────────
 function DeleteTreatmentModal({ isOpen, treatmentTitle, onConfirm, onCancel }) {
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
+
 
   useEffect(() => {
     if (!isOpen) return;
@@ -153,7 +166,9 @@ function DeleteTreatmentModal({ isOpen, treatmentTitle, onConfirm, onCancel }) {
     );
   }, [isOpen]);
 
+
   if (!isOpen) return null;
+
 
   return (
     <div ref={overlayRef}
@@ -197,6 +212,7 @@ function DeleteTreatmentModal({ isOpen, treatmentTitle, onConfirm, onCancel }) {
   );
 }
 
+
 // ── StatCard ───────────────────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, accent = false }) {
   return (
@@ -212,6 +228,24 @@ function StatCard({ icon: Icon, label, value, accent = false }) {
   );
 }
 
+
+// ── פונקציית עזר לחילוץ timestamp להשוואה ─────────────────────────────────
+// ✅ תיקון בעיה 1: פונקציה אחידה שמביאה בחשבון את כל שדות הזמן האפשריים
+function getItemTimestamp(item) {
+  // עדיפות 1: createdAt (Firestore serverTimestamp) — הכי מדויק
+  if (item.createdAt?.toDate) return item.createdAt.toDate().getTime();
+  if (item.createdAt?.seconds) return item.createdAt.seconds * 1000;
+
+  // עדיפות 2: date + startTime / time
+  const dateStr = item.date || '';
+  const timeStr = item.startTime || item.time || '00:00';
+  if (dateStr) return new Date(`${dateStr}T${timeStr}:00`).getTime();
+
+  // Fallback: שם הפריט לא ידוע — לשלוח לסוף
+  return 0;
+}
+
+
 // ── CustomerProfile ────────────────────────────────────────────────────────
 export default function CustomerProfile({ customer, onBack, onEdit }) {
   const {
@@ -223,9 +257,11 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     deleteTreatment,
   } = useTreatments(customer?.id);
 
+
   const { appointments, loading: loadingAppts }     = useCustomerAppointments(customer?.id);
   const { activityLogs, loading: loadingActivities } = useActivityLogs(customer?.id);
   const { showToast } = useToast();
+
 
   const [isAdding,          setIsAdding]          = useState(false);
   const [saving,            setSaving]            = useState(false);
@@ -233,9 +269,11 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
   const [deletingTreatment, setDeletingTreatment] = useState(null);
   const isEditingNote = !!newTreatment.id;
 
+
   const pageRef     = useRef(null);
   const formRef     = useRef(null);
   const timelineRef = useRef(null);
+
 
   // ── חישוב סטטיסטיקות ──────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -243,43 +281,41 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
       .filter((a) => a.status === 'completed')
       .reduce((sum, a) => sum + (Number(a.price) || 0), 0);
 
-    // תוקן (✅): סינון treatments אוטומטיים ישנים למניעת double-count
+
     const manualNotesRevenue = treatments
       .filter((t) => !detectAutoType(t.title))
       .reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+
 
     const totalRevenue   = apptRevenue + manualNotesRevenue;
     const completedAppts = appointments.filter((a) => a.status === 'completed').length;
     const totalVisits    = (customer.totalVisits ?? 0) + completedAppts;
 
+
     return { totalRevenue, completedAppts, totalVisits };
   }, [treatments, appointments, customer.totalVisits]);
 
+
   // ── Unified Timeline ───────────────────────────────────────────────────
   const unifiedTimeline = useMemo(() => {
-    // תוקן (✅): תמיכה לאחור בלוגים ישנים שנכתבו כ-treatments
     const taggedTreatments = treatments.map((t) => {
       const oldAutoType = detectAutoType(t.title);
-      if (oldAutoType) {
-        return { ...t, _type: 'activity', eventType: oldAutoType };
-      }
+      if (oldAutoType) return { ...t, _type: 'activity', eventType: oldAutoType };
       return { ...t, _type: 'note' };
     });
 
+
     const tagged = [
       ...taggedTreatments,
-      ...activityLogs.map((l) => ({ ...l,  _type: 'activity'    })),
-      ...appointments.map((a) => ({ ...a,  _type: 'appointment' })),
+      ...activityLogs.map((l) => ({ ...l, _type: 'activity'    })),
+      ...appointments.map((a) => ({ ...a, _type: 'appointment' })),
     ];
 
-    return tagged.sort((a, b) => {
-      const dateDiff = (b.date || '').localeCompare(a.date || '');
-      if (dateDiff !== 0) return dateDiff;
-      const timeA = a.startTime || a.time || '';
-      const timeB = b.startTime || b.time || '';
-      return timeB > timeA ? 1 : -1;
-    });
+    // ✅ תיקון בעיה 1: מיון יורד — חדש למעלה, ישן למטה
+    // משתמש ב-getItemTimestamp שמתעדף createdAt > date+time > 0
+    return tagged.sort((a, b) => getItemTimestamp(b) - getItemTimestamp(a));
   }, [treatments, activityLogs, appointments]);
+
 
   // ── GSAP ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -289,6 +325,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
       { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }
     );
   }, []);
+
 
   useEffect(() => {
     if (loadingTreatments || loadingAppts || loadingActivities || !timelineRef.current) return;
@@ -300,6 +337,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     );
   }, [loadingTreatments, loadingAppts, loadingActivities, unifiedTimeline]);
 
+
   useEffect(() => {
     if (!isAdding || !formRef.current) return;
     gsap.fromTo(formRef.current,
@@ -308,11 +346,14 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     );
   }, [isAdding]);
 
+
   if (!customer) return null;
+
 
   const typeMeta  = CUSTOMER_TYPE_LABELS[customer.customerType] ?? CUSTOMER_TYPE_LABELS.regular;
   const isFromWeb = customer.source === 'online_booking';
   const set       = (field) => (e) => setNewTreatment((p) => ({ ...p, [field]: e.target.value }));
+
 
   const handleEditNote = (note) => {
     setNewTreatment({
@@ -324,6 +365,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     });
     setIsAdding(true);
   };
+
 
   const handleAddTreatment = async (e) => {
     e.preventDefault();
@@ -347,6 +389,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     }
   };
 
+
   const handleDeleteConfirm = async () => {
     if (!deletingTreatment) return;
     try {
@@ -359,20 +402,25 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
     }
   };
 
+
   const handleCancelForm = () => {
     setIsAdding(false);
     setNewTreatment(EMPTY_TREATMENT);
   };
 
+
   const inputCls = `w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-600
     bg-white dark:bg-gray-800 dark:text-white text-sm outline-none
     focus:border-[#e5007e] focus:ring-1 focus:ring-[#e5007e] transition-all`;
 
+
   const loading = loadingTreatments || loadingAppts || loadingActivities;
+
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div ref={pageRef} className="space-y-6 p-4 md:p-8" dir="rtl">
+
 
       <DeleteTreatmentModal
         isOpen={!!deletingTreatment}
@@ -380,6 +428,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeletingTreatment(null)}
       />
+
 
       {/* חזרה */}
       <button onClick={onBack}
@@ -389,12 +438,15 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
         חזרה לרשימת הלקוחות
       </button>
 
+
       <div className="flex flex-col md:flex-row gap-6">
+
 
         {/* ── עמודה שמאל: פרופיל ──────────────────────────────────────── */}
         <div className="w-full md:w-1/3 space-y-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm
                           border border-gray-100 dark:border-gray-700">
+
 
             {/* Avatar + שם + מקור */}
             <div className="flex items-center gap-4 mb-5">
@@ -430,6 +482,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             </div>
 
+
             {/* פרטי קשר */}
             <div className="space-y-2 mb-5 text-sm text-gray-600 dark:text-gray-400">
               <p className="flex items-center gap-2" dir="ltr">
@@ -449,6 +502,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 </p>
               )}
             </div>
+
 
             {/* כפתורי פעולה */}
             <div className="flex flex-col xl:flex-row gap-2">
@@ -478,6 +532,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             </div>
 
+
             {/* תגיות */}
             {(customer.tags ?? []).length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-4 pt-4
@@ -493,6 +548,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             )}
 
+
             {/* סטטיסטיקות */}
             <div className="grid grid-cols-3 gap-2 mt-4 pt-4
                             border-t border-gray-100 dark:border-gray-700">
@@ -505,6 +561,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 accent={stats.totalRevenue > 0}
               />
             </div>
+
 
             {/* מידע רפואי */}
             {(customer.medicalNotes || customer.allergies) && (
@@ -527,6 +584,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               </div>
             )}
 
+
             {/* הערות כלליות */}
             {customer.notes && (
               <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
@@ -539,10 +597,12 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
           </div>
         </div>
 
+
         {/* ── עמודה ימין: Unified Timeline ─────────────────────────── */}
         <div className="w-full md:w-2/3">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm
                           border border-gray-100 dark:border-gray-700 min-h-[500px]">
+
 
             {/* כותרת */}
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
@@ -566,6 +626,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
               )}
             </div>
 
+
             {/* טופס הוספה/עריכה */}
             {isAdding && (
               <div ref={formRef} className="overflow-hidden">
@@ -582,8 +643,10 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     </button>
                   </div>
 
+
                   <input type="text" required placeholder="כותרת ההערה"
                     value={newTreatment.title} onChange={set('title')} className={inputCls} />
+
 
                   <div className="grid grid-cols-2 gap-3">
                     <input type="date" required
@@ -593,10 +656,12 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                       onChange={set('time')} className={inputCls} />
                   </div>
 
+
                   <textarea
                     placeholder="תוכן ההערה (חומרים, תגובה, דגשים לפעם הבאה...)"
                     rows={3} value={newTreatment.notes} onChange={set('notes')}
                     className={`${inputCls} resize-none`} />
+
 
                   <div className="flex justify-end gap-2 pt-1">
                     <button type="button" onClick={handleCancelForm}
@@ -613,6 +678,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 </form>
               </div>
             )}
+
 
             {/* Timeline */}
             {loading ? (
@@ -637,6 +703,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
             ) : (
               <div ref={timelineRef} className="space-y-4">
                 {unifiedTimeline.map((item) => {
+
 
                   // ── כרטיס תור ─────────────────────────────────────
                   if (item._type === 'appointment') return (
@@ -697,6 +764,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                     </div>
                   );
 
+
                   // ── כרטיס פעולה אוטומטית (activity_logs) ─────────
                   if (item._type === 'activity') {
                     const meta = ACTIVITY_META[item.eventType] ?? ACTIVITY_META_DEFAULT;
@@ -746,6 +814,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                       </div>
                     );
                   }
+
 
                   // ── כרטיס הערה ידנית (treatments) ─────────────────
                   return (
@@ -802,6 +871,7 @@ export default function CustomerProfile({ customer, onBack, onEdit }) {
                 })}
               </div>
             )}
+
 
           </div>
         </div>
