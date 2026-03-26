@@ -1,29 +1,19 @@
 // src/hooks/useAutoConfirmWorker.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Background Worker — רץ בתוך מערכת הניהול כשהקוסמטיקאית מחוברת
-// כשהמתג "אישור אוטומטי" דלוק — האזנה ל-bookingRequests ועיבוד ידני
-// ✅ מאובטח: כל הכתיבה ל-appointments/customers ע"י משתמש מחובר (isOwner)
-// ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useRef } from 'react';
 import { db, auth } from '../firebase';
 import {
   collection, query, where, onSnapshot,
   addDoc, updateDoc, getDocs,
-  doc, serverTimestamp,
+  doc, serverTimestamp, runTransaction,
 } from 'firebase/firestore';
 
-// ── מצא או צור לקוחה (זהה ל-BookingRequests.jsx) ────────────────────────────
 async function findOrCreateCustomer(uid, guestName, guestPhone) {
   const existing = await getDocs(query(
     collection(db, 'customers'),
     where('userId', '==', uid),
     where('phone',  '==', guestPhone),
   ));
-
-  if (!existing.empty) {
-    return { customerId: existing.docs[0].id, isNew: false };
-  }
-
+  if (!existing.empty) return { customerId: existing.docs[0].id, isNew: false };
   const newDoc = await addDoc(collection(db, 'customers'), {
     userId:    uid,
     name:      guestName,
@@ -31,19 +21,14 @@ async function findOrCreateCustomer(uid, guestName, guestPhone) {
     source:    'online_booking',
     createdAt: serverTimestamp(),
   });
-
   return { customerId: newDoc.id, isNew: true };
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
 export function useAutoConfirmWorker(autoConfirm) {
-  // ✅ ref לרשימת בקשות שכבר בעיבוד — מונע עיבוד כפול
   const processingRef = useRef(new Set());
 
   useEffect(() => {
-    // לא רץ אם: המתג כבוי, המשתמש לא מחובר
     if (!autoConfirm || !auth.currentUser) return;
-
     const uid = auth.currentUser.uid;
 
     const q = query(
@@ -52,58 +37,74 @@ export function useAutoConfirmWorker(autoConfirm) {
       where('status',   '==', 'pending'),
     );
 
-    // ✅ onSnapshot — כל בקשה חדשה מטופלת מיד
     const unsub = onSnapshot(q, async (snap) => {
       for (const change of snap.docChanges()) {
-        // רק בקשות חדשות שנכנסו — לא שינויים
         if (change.type !== 'added') continue;
 
-        const reqId = change.doc.id;
-        const req   = change.doc.data();
+        const reqId  = change.doc.id;
+        const reqRef = doc(db, 'bookingRequests', reqId);
 
-        // ✅ מונע עיבוד כפול אם snapshot מגיע שוב
+        // in-memory guard — same tab only
         if (processingRef.current.has(reqId)) continue;
         processingRef.current.add(reqId);
 
+        // ── שלב 1: נעילה אטומית ─────────────────────────────────────
+        let reqData;
         try {
-          // א. מצא או צור לקוחה
+          await runTransaction(db, async (t) => {
+            const snap = await t.get(reqRef);
+            if (!snap.exists()) throw new Error('doc_missing');
+            if (snap.data().status !== 'pending') throw new Error('not_pending');
+            t.update(reqRef, { status: 'processing', processingAt: serverTimestamp() });
+            reqData = snap.data();
+          });
+        } catch (lockErr) {
+          // בקשה כבר נתפסה על ידי טאב אחר — מדלגים
+          console.log(`[AutoConfirm] skip ${reqId}:`, lockErr.message);
+          processingRef.current.delete(reqId);
+          continue;
+        }
+
+        // ── שלב 2: עבודה אסינכרונית (מחוץ לטרנזקציה) ────────────────
+        try {
           const { customerId } = await findOrCreateCustomer(
-            uid,
-            req.guestName,
-            req.guestPhone,
+            uid, reqData.guestName, reqData.guestPhone,
           );
 
-          // ב. כתוב ל-appointments (כמחובר — isOwner יעבור)
           await addDoc(collection(db, 'appointments'), {
             userId:        uid,
             customerId,
-            customerName:  req.guestName,
-            customerPhone: req.guestPhone,
-            serviceId:     req.serviceId    || '',
-            serviceTitle:  req.serviceTitle || req.title || '',
-            date:          req.date,
-            startTime:     req.startTime,
-            endTime:       req.endTime      || '',
-            duration:      req.duration     || 0,
-            price:         req.price        || 0,
+            customerName:  reqData.guestName,
+            customerPhone: reqData.guestPhone,
+            serviceId:     reqData.serviceId    || '',
+            serviceTitle:  reqData.serviceTitle || reqData.title || '',
+            date:          reqData.date,
+            startTime:     reqData.startTime,
+            endTime:       reqData.endTime      || '',
+            duration:      reqData.duration     || 0,
+            price:         reqData.price        || 0,
             status:        'scheduled',
             source:        'online_booking',
-            notes:         req.notes        || '',
+            notes:         reqData.notes        || '',
             createdAt:     serverTimestamp(),
           });
 
-          // ג. עדכן סטטוס הבקשה ל-approved
-          await updateDoc(doc(db, 'bookingRequests', reqId), {
+          await updateDoc(reqRef, {
             status:     'approved',
             customerId,
             updatedAt:  serverTimestamp(),
           });
 
-          console.log(`[AutoConfirm] ✅ אושר אוטומטית: ${req.guestName} — ${req.date}`);
+          console.log(`[AutoConfirm] ✅ אושר: ${reqData.guestName} — ${reqData.date}`);
 
-        } catch (err) {
-          console.error(`[AutoConfirm] ❌ שגיאה בעיבוד ${reqId}:`, err);
-          // ✅ הסר מהעיבוד כדי שינסה שוב בפעם הבאה
+        } catch (workErr) {
+          console.error(`[AutoConfirm] ❌ שגיאה ${reqId}:`, workErr);
+          // ── Rollback: החזרה ל-pending כדי שמשתמש יוכל לאשר ידנית
+          try {
+            await updateDoc(reqRef, { status: 'pending', updatedAt: serverTimestamp() });
+          } catch (rbErr) {
+            console.error(`[AutoConfirm] rollback failed ${reqId}:`, rbErr);
+          }
           processingRef.current.delete(reqId);
         }
       }
@@ -115,5 +116,5 @@ export function useAutoConfirmWorker(autoConfirm) {
       unsub();
       processingRef.current.clear();
     };
-  }, [autoConfirm]); // ✅ מופעל מחדש רק כשהמתג משתנה
+  }, [autoConfirm]);
 }

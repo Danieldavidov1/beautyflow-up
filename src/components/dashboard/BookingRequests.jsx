@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../../firebase';
 import {
   collection, query, where, getDocs,
-  doc, updateDoc, addDoc, serverTimestamp,
+  doc, updateDoc, addDoc, serverTimestamp, runTransaction,
 } from 'firebase/firestore';
 import {
   Calendar, Clock, User, Phone, Check, X,
@@ -11,19 +11,15 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
-// ── פונקציית וואטסאפ ─────────────────────────────────────────────────────────
 function openWhatsApp(req) {
   const [y, m, d] = req.date.split('-');
   const displayDate = `${d}/${m}/${y}`;
   const service = req.serviceTitle || req.title || '';
   const phone = req.guestPhone.replace(/\D/g, '').replace(/^0/, '972');
-
   const text = `היי ${req.guestName} מעדכנים אותך! 👋\nשהתור שלך אושר ✅\n📅 תאריך: ${displayDate}\n🕐 שעה: ${req.startTime}\nשירות: ${service}\nנתראה! 😊`;
-
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
 }
 
-// ── כרטיס בקשה בודד ──────────────────────────────────────────────────────────
 function RequestCard({ req, onApprove, onReject, isProcessing }) {
   const [y, m, d] = req.date.split('-');
   const displayDate = `${d}/${m}/${y}`;
@@ -33,11 +29,9 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
                     border border-gray-100 dark:border-gray-700
                     p-5 relative overflow-hidden flex flex-col
                     hover:shadow-md transition-shadow">
-      {/* פס עליון */}
       <div className="absolute top-0 left-0 right-0 h-1
                       bg-gradient-to-r from-[#e5007e] to-purple-500" />
 
-      {/* שורת כותרת */}
       <div className="flex justify-between items-start mb-4 mt-1">
         <div>
           <h3 className="font-bold text-base text-gray-800 dark:text-gray-100
@@ -58,7 +52,6 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
         </div>
       </div>
 
-      {/* פרטי הטיפול */}
       <div className="space-y-2.5 bg-gray-50 dark:bg-gray-700/50
                       p-3 rounded-xl mb-4 text-sm
                       text-gray-600 dark:text-gray-300 flex-1">
@@ -99,7 +92,6 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
         )}
       </div>
 
-      {/* ✅ כפתור וואטסאפ */}
       <button
         onClick={() => openWhatsApp(req)}
         className="w-full mb-2 flex items-center justify-center gap-2
@@ -113,7 +105,6 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
         שלח אישור בוואטסאפ
       </button>
 
-      {/* כפתורי אישור/דחייה */}
       <div className="flex gap-2">
         <button
           onClick={() => onReject(req.id)}
@@ -146,14 +137,12 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
   );
 }
 
-// ── BookingRequests ───────────────────────────────────────────────────────────
 export default function BookingRequests() {
   const [requests,      setRequests]      = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const { showToast } = useToast();
 
-  // ── שליפת בקשות ממתינות ──────────────────────────────────────────
   const fetchPendingRequests = useCallback(async () => {
     if (!auth.currentUser) return;
     setLoading(true);
@@ -181,7 +170,6 @@ export default function BookingRequests() {
 
   useEffect(() => { fetchPendingRequests(); }, [fetchPendingRequests]);
 
-  // ── אוטומציית CRM ────────────────────────────────────────────────
   const findOrCreateCustomer = async (req) => {
     const uid = auth.currentUser.uid;
     const existing = await getDocs(query(
@@ -200,11 +188,31 @@ export default function BookingRequests() {
     return { customerId: newCustomer.id, isNew: true };
   };
 
-  // ── אישור תור ─────────────────────────────────────────────────────
+  // ── אישור תור עם 2-phase lock ─────────────────────────────────────
   const handleApprove = async (req) => {
     setActionLoading(req.id);
+    const reqRef = doc(db, 'bookingRequests', req.id);
+
+    // ── שלב 1: נעילה אטומית ─────────────────────────────────────────
+    try {
+      await runTransaction(db, async (t) => {
+        const snap = await t.get(reqRef);
+        if (!snap.exists()) throw new Error('doc_missing');
+        if (snap.data().status !== 'pending') throw new Error('not_pending');
+        t.update(reqRef, { status: 'processing', processingAt: serverTimestamp() });
+      });
+    } catch (lockErr) {
+      showToast('הבקשה כבר בטיפול על ידי חלון אחר', 'error');
+      setActionLoading(null);
+      // מסיר מהרשימה המקומית כי כנראה כבר אושרה
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      return;
+    }
+
+    // ── שלב 2: עבודה אסינכרונית ─────────────────────────────────────
     try {
       const { customerId, isNew } = await findOrCreateCustomer(req);
+
       await addDoc(collection(db, 'appointments'), {
         userId:        auth.currentUser.uid,
         customerId,
@@ -213,7 +221,6 @@ export default function BookingRequests() {
         serviceId:     req.serviceId    || '',
         serviceTitle:  req.serviceTitle || req.title || '',
         title:         req.serviceTitle || req.title || '',
-        // ✅ FIX 1: inject qty+color so ServiceSelector never produces NaN
         services: (req.services || []).map(s => ({
           ...s,
           qty:   s.qty   || 1,
@@ -229,11 +236,13 @@ export default function BookingRequests() {
         notes:         req.notes           || '',
         createdAt:     serverTimestamp(),
       });
-      await updateDoc(doc(db, 'bookingRequests', req.id), {
+
+      await updateDoc(reqRef, {
         status:     'approved',
         customerId,
         updatedAt:  serverTimestamp(),
       });
+
       setRequests((prev) => prev.filter((r) => r.id !== req.id));
       showToast(
         isNew
@@ -242,14 +251,19 @@ export default function BookingRequests() {
         'success'
       );
     } catch (err) {
-      console.error('[BookingRequests] approve:', err);
-      showToast('שגיאה באישור התור', 'error');
+      console.error('[BookingRequests] approve step2:', err);
+      // ── Rollback ────────────────────────────────────────────────────
+      try {
+        await updateDoc(reqRef, { status: 'pending', updatedAt: serverTimestamp() });
+      } catch (rbErr) {
+        console.error('[BookingRequests] rollback failed:', rbErr);
+      }
+      showToast('שגיאה באישור התור — הבקשה הוחזרה להמתנה', 'error');
     } finally {
       setActionLoading(null);
     }
   };
 
-  // ── דחיית תור ─────────────────────────────────────────────────────
   const handleReject = async (reqId) => {
     if (!window.confirm('האם את בטוחה שברצונך לדחות את הבקשה?')) return;
     setActionLoading(reqId);
@@ -268,7 +282,6 @@ export default function BookingRequests() {
     }
   };
 
-  // ── Loading ───────────────────────────────────────────────────────
   if (loading) return (
     <div className="flex justify-center items-center h-64">
       <div className="w-10 h-10 border-4 border-[#e5007e]
@@ -276,11 +289,8 @@ export default function BookingRequests() {
     </div>
   );
 
-  // ── RENDER ────────────────────────────────────────────────────────
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto" dir="rtl">
-
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100
@@ -307,7 +317,6 @@ export default function BookingRequests() {
         </button>
       </div>
 
-      {/* legend */}
       {requests.length > 0 && (
         <div className="flex items-center gap-2 mb-4 px-3 py-2
                         bg-purple-50 dark:bg-purple-900/20
@@ -321,7 +330,6 @@ export default function BookingRequests() {
         </div>
       )}
 
-      {/* הסבר כפתור וואטסאפ */}
       {requests.length > 0 && (
         <div className="flex items-center gap-2 mb-5 px-3 py-2
                         bg-green-50 dark:bg-green-900/20
@@ -334,7 +342,6 @@ export default function BookingRequests() {
         </div>
       )}
 
-      {/* Empty state */}
       {requests.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm
                         border border-gray-100 dark:border-gray-700

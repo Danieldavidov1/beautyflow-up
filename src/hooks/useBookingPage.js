@@ -9,24 +9,20 @@ import {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-
 export function toMin(timeStr) {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 }
 
-
 export function toTimeStr(mins) {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
-
 
 export function parseDateStr(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d, 12, 0, 0);
 }
-
 
 export function toDateStr(dateObj) {
   const y = dateObj.getFullYear();
@@ -119,22 +115,37 @@ export function useBookingPage(providerId) {
   }, [providerId]);
 
 
-  // ── 2. שליפת תורים תפוסים וחסומים ─────────────────────────────
-  // ✅ תיקון בעיה 2: שאילתה אחת שמחזירה גם תורים רגילים וגם חסימות
-  // חסכון בעלות שרת: query אחד במקום שניים, עם OR על status
+  // ── 2. שליפת תורים תפוסים וחסומים (כולל בקשות ממתינות) ─────────
   const fetchBookedSlots = useCallback(async (selectedDate) => {
     if (!providerId || !selectedDate) return [];
 
     setLoadingSlots(true);
     try {
-      const aptSnap = await getDocs(query(
-        collection(db, 'appointments'),
-        where('userId', '==', providerId),
-        where('date',   '==', selectedDate),
-        where('status', 'in', ['scheduled', 'completed', 'blocked']), // ✅ נוסף 'blocked'
-      ));
+      // שאילתות מקביליות: appointments + bookingRequests ממתינות
+      const [aptSnap, reqSnap] = await Promise.all([
+        getDocs(query(
+          collection(db, 'appointments'),
+          where('userId', '==', providerId),
+          where('date',   '==', selectedDate),
+          where('status', 'in', ['scheduled', 'completed', 'blocked']),
+        )),
+        getDocs(query(
+          collection(db, 'bookingRequests'),
+          where('ownerUid', '==', providerId),
+          where('date',     '==', selectedDate),
+          where('status',   'in', ['pending', 'processing']),
+        )),
+      ]);
 
-      const slots = aptSnap.docs.map((d) => d.data());
+      const aptSlots = aptSnap.docs.map((d) => d.data());
+
+      // בקשות ממתינות — מומרות לאותו מבנה שה-overlap check מצפה לו
+      const reqSlots = reqSnap.docs.map((d) => {
+        const r = d.data();
+        return { startTime: r.startTime, endTime: r.endTime, isBlocked: false };
+      });
+
+      const slots = [...aptSlots, ...reqSlots];
       setBookedSlots(slots);
       return slots;
     } catch (err) {
@@ -148,7 +159,6 @@ export function useBookingPage(providerId) {
 
 
   // ── 3. חישוב שעות פנויות ────────────────────────────────────────
-  // ✅ תיקון בעיה 2 (חלק ב): חסימות "כל היום" (00:00–23:59) חוסמות את כל היום
   const calculateAvailableSlots = useCallback((selectedDate, serviceDuration, currentBookedSlots) => {
     if (!providerSettings || !selectedDate || !serviceDuration) return [];
 
@@ -161,11 +171,11 @@ export function useBookingPage(providerId) {
     const openMin    = toMin(dayCfg.start);
     const closeMin   = toMin(dayCfg.end);
     const duration   = Number(serviceDuration);
-    const slotStep   = 30;
+    const slotStep   = 15; // ✅ תוקן מ-30 ל-15 — אין יותר gaps של 15 דק׳
     const nowMs      = Date.now();
     const slotsToUse = currentBookedSlots ?? bookedSlots;
 
-    // ✅ בדיקת חסימת יום שלם (isAllDay) — אם קיימת, מחזירים מיד מערך ריק
+    // בדיקת חסימת יום שלם
     const isFullDayBlocked = slotsToUse.some(
       (apt) => apt.isBlocked && apt.startTime === '00:00' && apt.endTime === '23:59'
     );
@@ -181,7 +191,7 @@ export function useBookingPage(providerId) {
       const hasOverlap = slotsToUse.some((apt) => {
         const aptStart = toMin(apt.startTime);
         const aptEnd   = toMin(apt.endTime);
-        return cur < aptEnd && slotEnd > aptStart; // ✅ עובד גם על blocked
+        return cur < aptEnd && slotEnd > aptStart;
       });
 
       if (!hasOverlap) slots.push(toTimeStr(cur));
@@ -207,14 +217,16 @@ export function useBookingPage(providerId) {
         createdAt: serverTimestamp(),
       });
 
-      return { docId: docRef.id, autoConfirmed: false };
+      // ✅ Fix C: autoConfirmed נקרא מה-settings של בעל העסק
+      const autoConfirmed = providerSettings?.autoConfirm === true;
+      return { docId: docRef.id, autoConfirmed };
     } catch (err) {
       console.error('[useBookingPage] submitBookingRequest:', err);
       throw err;
     } finally {
       setSubmitting(false);
     }
-  }, [providerId, submitting]);
+  }, [providerId, submitting, providerSettings]);
 
 
   return {

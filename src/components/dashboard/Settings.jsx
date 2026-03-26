@@ -15,13 +15,16 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import BusinessHoursSettings from './BusinessHoursSettings';
 
+
 const USER_COLLECTIONS = [
   'incomes', 'expenses', 'goals', 'budgets',
   'categories', 'categoryBudgets',
   'transactions', 'appointments', 'services',
 ];
 
+
 const BATCH_SIZE = 499;
+
 
 async function batchDeleteAll(userId) {
   for (const col of USER_COLLECTIONS) {
@@ -36,6 +39,7 @@ async function batchDeleteAll(userId) {
     }
   }
 }
+
 
 function Tab({ active, onClick, icon, label }) {
   return (
@@ -52,6 +56,7 @@ function Tab({ active, onClick, icon, label }) {
     </button>
   );
 }
+
 
 function ToggleSwitch({ enabled, onToggle, loading }) {
   return (
@@ -71,7 +76,7 @@ function ToggleSwitch({ enabled, onToggle, loading }) {
   );
 }
 
-// ── ✅ BookingLinkCard ─────────────────────────────────────────────────────
+
 function BookingLinkCard() {
   const [copied, setCopied] = useState(false);
   const uid = auth.currentUser?.uid;
@@ -102,12 +107,9 @@ function BookingLinkCard() {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl p-5
                     shadow-sm border border-gray-100 dark:border-gray-700">
-
-      {/* כותרת */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-pink-50 dark:bg-pink-900/30 rounded-xl shrink-0">
-            {/* SVG אייקון לינק */}
             <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-[#e5007e]"
               viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -124,7 +126,6 @@ function BookingLinkCard() {
             </p>
           </div>
         </div>
-        {/* אינדיקטור פעיל */}
         <div className="flex items-center gap-1.5 bg-green-100 dark:bg-green-900/30
                         px-2.5 py-1 rounded-full shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -134,7 +135,6 @@ function BookingLinkCard() {
         </div>
       </div>
 
-      {/* תצוגת URL */}
       <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50
                       border border-gray-200 dark:border-gray-600
                       rounded-xl px-3 py-2.5 mb-3">
@@ -144,7 +144,6 @@ function BookingLinkCard() {
         </span>
       </div>
 
-      {/* כפתורים */}
       <div className="flex gap-2">
         <button
           onClick={handleCopy}
@@ -173,6 +172,7 @@ function BookingLinkCard() {
   );
 }
 
+
 // ── Settings ───────────────────────────────────────────────────────────────
 export default function Settings() {
   const { showToast } = useToast();
@@ -187,8 +187,14 @@ export default function Settings() {
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingToggle,    setSavingToggle]    = useState(false);
 
+  // ✅ שלב 1: state חדשים להודעות
+  const [welcomeMessage,      setWelcomeMessage]      = useState('');
+  const [confirmationMessage, setConfirmationMessage] = useState('');
+  const [savingMessages,      setSavingMessages]      = useState(false);
+
   const containerRef = useRef(null);
 
+  // ✅ שלב 2: טעינת הודעות ב-useEffect הקיים
   useEffect(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -197,6 +203,9 @@ export default function Settings() {
         const snap = await getDoc(doc(db, 'userSettings', uid));
         if (snap.exists()) {
           setAutoConfirm(snap.data().autoConfirm ?? false);
+          // ✅ טעינת הודעות מ-Firestore
+          setWelcomeMessage(snap.data().welcomeMessage ?? '');
+          setConfirmationMessage(snap.data().confirmationMessage ?? '');
         }
       } catch (err) {
         console.error('[Settings] load:', err);
@@ -230,6 +239,26 @@ export default function Settings() {
       showToast('שגיאה בשמירת ההגדרה', 'error');
     } finally {
       setSavingToggle(false);
+    }
+  };
+
+  // ✅ שלב 3: פונקציית שמירת הודעות
+  const handleSaveMessages = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    setSavingMessages(true);
+    try {
+      await setDoc(
+        doc(db, 'userSettings', uid),
+        { welcomeMessage, confirmationMessage },
+        { merge: true }
+      );
+      showToast('✅ ההודעות נשמרו בהצלחה', 'success');
+    } catch (err) {
+      console.error('[Settings] saveMessages:', err);
+      showToast('שגיאה בשמירת ההודעות', 'error');
+    } finally {
+      setSavingMessages(false);
     }
   };
 
@@ -446,8 +475,6 @@ export default function Settings() {
               </div>
             ) : (
               <div className="space-y-4">
-
-                {/* מתג אישור אוטומטי */}
                 <div className="flex items-center justify-between p-4
                                 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
                   <div className="flex-1 ml-4">
@@ -467,7 +494,6 @@ export default function Settings() {
                   />
                 </div>
 
-                {/* הסבר מורחב */}
                 <div className={`p-4 rounded-xl border text-sm transition-colors
                   ${autoConfirm
                     ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
@@ -490,9 +516,102 @@ export default function Settings() {
                       : 'כל בקשת תור מהלינק הציבורי מחכה לך במסך "בקשות תורים". את מאשרת או דוחה כל בקשה בנפרד.'}
                   </p>
                 </div>
-
               </div>
             )}
+          </div>
+
+          {/* ✅ שלב 4: כרטיס הודעות לדף הזמנה אונליין */}
+          <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
+                          shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-start gap-3 mb-5">
+              <div className="p-3 bg-pink-50 dark:bg-pink-900/30 rounded-xl shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-[#e5007e]"
+                     viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">
+                  הודעות לדף הזמנה אונליין
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  טקסטים שיופיעו ללקוחה לאחר קביעת התור
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* הודעת המתנה */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700
+                                   dark:text-gray-300 mb-1.5">
+                  הודעת סיום (כשהתור ממתין לאישור)
+                </label>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                  ברירת מחדל: "ניצור קשר בהקדם לאישור סופי 💅"
+                </p>
+                <textarea
+                  value={welcomeMessage}
+                  onChange={(e) => setWelcomeMessage(e.target.value)}
+                  maxLength={200}
+                  rows={2}
+                  placeholder="ניצור קשר בהקדם לאישור סופי 💅"
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200
+                             dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50
+                             text-sm text-gray-800 dark:text-gray-100
+                             focus:outline-none focus:ring-2 focus:ring-[#e5007e]/30
+                             resize-none"
+                  dir="rtl"
+                />
+                <p className="text-xs text-gray-400 mt-1 text-left">
+                  {welcomeMessage.length}/200
+                </p>
+              </div>
+
+              {/* הודעת אישור אוטומטי */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700
+                                   dark:text-gray-300 mb-1.5">
+                  הודעת אישור (כשהתור אושר אוטומטית)
+                </label>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                  ברירת מחדל: "מצפות לראות אותך! 💅"
+                </p>
+                <textarea
+                  value={confirmationMessage}
+                  onChange={(e) => setConfirmationMessage(e.target.value)}
+                  maxLength={200}
+                  rows={2}
+                  placeholder="מצפות לראות אותך! 💅"
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200
+                             dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50
+                             text-sm text-gray-800 dark:text-gray-100
+                             focus:outline-none focus:ring-2 focus:ring-[#e5007e]/30
+                             resize-none"
+                  dir="rtl"
+                />
+                <p className="text-xs text-gray-400 mt-1 text-left">
+                  {confirmationMessage.length}/200
+                </p>
+              </div>
+
+              <button
+                onClick={handleSaveMessages}
+                disabled={savingMessages}
+                className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
+                           py-2.5 rounded-xl font-semibold text-sm
+                           transition-colors disabled:opacity-60
+                           flex items-center justify-center gap-2">
+                {savingMessages ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white
+                                     border-t-transparent rounded-full animate-spin" />
+                    שומר...
+                  </>
+                ) : '💾 שמור הודעות'}
+              </button>
+            </div>
           </div>
 
           {/* כרטיס מידע */}

@@ -10,10 +10,13 @@ import {
   ChevronRight, Store, FileText, AlertCircle, Sparkles, Shield, Check,
 } from 'lucide-react';
 
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 const HE_DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 const HE_MONTHS     = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יוני','יולי','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
+
 
 function getDates(numDays = 21) {
   const today = new Date();
@@ -25,11 +28,14 @@ function getDates(numDays = 21) {
   });
 }
 
+
 function isValidPhone(phone) {
   return /^0[0-9]{1,2}[-\s]?[0-9]{7}$/.test(phone.replace(/\s/g, ''));
 }
 
+
 // ── StepIndicator ─────────────────────────────────────────────────────────────
+
 
 function StepIndicator({ step }) {
   const steps = ['טיפול', 'מועד', 'פרטים'];
@@ -68,7 +74,9 @@ function StepIndicator({ step }) {
   );
 }
 
+
 // ── ErrorScreen ───────────────────────────────────────────────────────────────
+
 
 function ErrorScreen({ message }) {
   return (
@@ -85,11 +93,14 @@ function ErrorScreen({ message }) {
   );
 }
 
+
 // ── BookingPage ───────────────────────────────────────────────────────────────
+
 
 export default function BookingPage() {
   const { providerId } = useParams();
   const [step, setStep] = useState(1);
+
 
   const {
     providerSettings, services,
@@ -98,6 +109,7 @@ export default function BookingPage() {
     fetchBookedSlots, calculateAvailableSlots,
     submitBookingRequest,
   } = useBookingPage(providerId);
+
 
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate,     setSelectedDate]     = useState(toDateStr(new Date()));
@@ -110,8 +122,12 @@ export default function BookingPage() {
   const [submitError,      setSubmitError]      = useState(null);
   const [phoneError,       setPhoneError]       = useState('');
   const [phoneTouched,     setPhoneTouched]     = useState(false);
+  // ✅ חדש: מצב אישור אוטומטי
+  const [autoConfirmed,    setAutoConfirmed]    = useState(false);
+
 
   const datesList = useMemo(() => getDates(21), []);
+
 
   const totalDuration = useMemo(
     () => selectedServices.reduce((sum, s) => sum + Number(s.duration), 0),
@@ -126,6 +142,7 @@ export default function BookingPage() {
     [selectedServices]
   );
 
+
   const toggleService = (srv) => {
     setSelectedServices((prev) => {
       const exists = prev.find((s) => s.id === srv.id);
@@ -133,6 +150,7 @@ export default function BookingPage() {
       return [...prev, srv];
     });
   };
+
 
   // ── שליפת slots בשינוי תאריך ────────────────────────────────────
   const handleDateChange = useCallback(async (newDate, duration) => {
@@ -143,11 +161,13 @@ export default function BookingPage() {
     setAvailableSlots(calculateAvailableSlots(newDate, duration, fresh));
   }, [fetchBookedSlots, calculateAvailableSlots]);
 
+
   useEffect(() => {
     if (step === 2 && totalDuration > 0) {
       handleDateChange(selectedDate, totalDuration);
     }
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // ── וולידציה live לטלפון ─────────────────────────────────────────
   const handlePhoneBlur = () => {
@@ -159,10 +179,12 @@ export default function BookingPage() {
     }
   };
 
+
   // ── שליחת טופס ──────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+
 
     if (!isValidPhone(guestPhone)) {
       setPhoneTouched(true);
@@ -174,15 +196,14 @@ export default function BookingPage() {
       return;
     }
 
+
     setPhoneError('');
     setSubmitError(null);
 
+
     try {
-      await submitBookingRequest({
-        // ✅ SECURITY FIX: send serviceId only for single-service bookings.
-        // For multi-service, the `services` array satisfies the Firestore OR condition,
-        // and serviceId is omitted entirely — !('serviceId' in data) = true → rules pass.
-        // Sending joined IDs for 7+ services would exceed the 128-char limit and block the write.
+      // ✅ שינוי: שמירת result כדי לקבל autoConfirmed
+      const result = await submitBookingRequest({
         ...(selectedServices.length === 1
           ? { serviceId: selectedServices[0].id }
           : {}),
@@ -202,11 +223,14 @@ export default function BookingPage() {
         guestPhone:   guestPhone.trim(),
         notes:        notes.trim(),
       });
+      // ✅ שינוי: עדכון autoConfirmed לפני מעבר לשלב 4
+      setAutoConfirmed(result?.autoConfirmed ?? false);
       setStep(4);
     } catch (err) {
       setSubmitError(err.message || 'שגיאה בשליחת הבקשה. אנא נסי שוב.');
     }
   };
+
 
   // ─────────────────────────────────────────────────────────────────
   if (loadingInitial) return (
@@ -219,14 +243,18 @@ export default function BookingPage() {
     </div>
   );
 
+
   if (errorInitial) return <ErrorScreen message={errorInitial} />;
 
+
   const businessName = providerSettings?.businessName || 'קביעת תור';
+
 
   const canSubmit = guestName.trim().length >= 2
     && isValidPhone(guestPhone)
     && isConsentChecked
     && !submitting;
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-purple-50
@@ -234,10 +262,12 @@ export default function BookingPage() {
                     p-0 sm:p-4 font-sans"
          dir="rtl">
 
+
       <div className="w-full max-w-md bg-white flex flex-col
                       min-h-screen sm:min-h-0
                       sm:rounded-3xl sm:shadow-2xl sm:shadow-pink-200/40
                       overflow-hidden relative">
+
 
         {/* ── Header ────────────────────────────────────────────── */}
         <div className="bg-gradient-to-br from-[#e5007e] to-[#b30062]
@@ -264,7 +294,7 @@ export default function BookingPage() {
                     : 'בחרי טיפול להתחיל')}
                   {step === 2 && combinedTitle}
                   {step === 3 && 'פרטים אחרונים'}
-                  {step === 4 && 'הבקשה נשלחה! 🎉'}
+                  {step === 4 && (autoConfirmed ? 'התור אושר! 🎉' : 'הבקשה נשלחה! 🎉')}
                 </p>
               </div>
             </div>
@@ -272,8 +302,10 @@ export default function BookingPage() {
           {step < 4 && <StepIndicator step={step} />}
         </div>
 
+
         {/* ── תוכן ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto bg-gray-50/30">
+
 
           {/* ═══ שלב 1: בחירת שירותים (מרובה) ═══════════════════ */}
           {step === 1 && (
@@ -302,8 +334,6 @@ export default function BookingPage() {
                             ? 'bg-pink-50 border-[#e5007e] shadow-pink-200/50 shadow-md'
                             : 'bg-white border-gray-100 hover:border-pink-300 hover:shadow-md'
                         }`}>
-
-                        {/* checkmark על פינה ימנית עליונה */}
                         <div className={`absolute top-3 left-3 w-5 h-5 rounded-full border-2
                                         flex items-center justify-center transition-all ${
                           isSelected
@@ -312,7 +342,6 @@ export default function BookingPage() {
                         }`}>
                           {isSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                         </div>
-
                         <div className="flex justify-between items-center">
                           <div className="flex flex-col">
                             <span className={`font-bold text-base transition-colors ${
@@ -348,12 +377,11 @@ export default function BookingPage() {
             </div>
           )}
 
+
           {/* ═══ שלב 2: תאריך + שעה ════════════════════════════ */}
           {step === 2 && (
             <div className="flex flex-col relative"
                  style={{ minHeight: 'calc(100vh - 180px)' }}>
-
-              {/* סרגל תאריכים */}
               <div className="px-4 pt-4 pb-2 bg-white border-b
                               border-gray-100 shrink-0">
                 <p className="text-xs font-semibold text-gray-500 mb-3
@@ -402,7 +430,6 @@ export default function BookingPage() {
                 </div>
               </div>
 
-              {/* רשת שעות */}
               <div className="flex-1 overflow-y-auto p-4 pb-32">
                 <p className="text-xs font-semibold text-gray-500 mb-3
                                flex items-center gap-1.5">
@@ -449,7 +476,6 @@ export default function BookingPage() {
                 )}
               </div>
 
-              {/* כפתור המשך */}
               {selectedTime && (
                 <div className="absolute bottom-0 left-0 right-0 p-4
                                 bg-gradient-to-t from-white via-white to-transparent
@@ -478,11 +504,10 @@ export default function BookingPage() {
             </div>
           )}
 
+
           {/* ═══ שלב 3: פרטי לקוחה ══════════════════════════════ */}
           {step === 3 && (
             <div className="p-4 pb-10">
-
-              {/* סיכום בקשה */}
               <div className="bg-white border border-gray-100 rounded-2xl
                               p-4 mb-5 shadow-sm">
                 <p className="text-xs text-gray-400 font-medium mb-2">
@@ -490,7 +515,6 @@ export default function BookingPage() {
                 </p>
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1 min-w-0 ml-3">
-                    {/* רשימת שירותים */}
                     <div className="space-y-1.5 mb-2">
                       {selectedServices.map((srv) => (
                         <div key={srv.id} className="flex items-center justify-between gap-2">
@@ -539,8 +563,6 @@ export default function BookingPage() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-
-                {/* שם */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -557,7 +579,6 @@ export default function BookingPage() {
                                outline-none transition-all text-base" />
                 </div>
 
-                {/* טלפון */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -586,7 +607,6 @@ export default function BookingPage() {
                   )}
                 </div>
 
-                {/* הערות */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -608,7 +628,6 @@ export default function BookingPage() {
                   </p>
                 </div>
 
-                {/* Legal Consent */}
                 <div className={`flex items-start gap-3 p-4 rounded-2xl border-2
                                  transition-all cursor-pointer
                                  ${isConsentChecked
@@ -662,7 +681,6 @@ export default function BookingPage() {
                   </div>
                 </div>
 
-                {/* שגיאת שליחה */}
                 {submitError && (
                   <div className="flex items-start gap-2 p-3 rounded-xl
                                   bg-red-50 border border-red-200">
@@ -690,10 +708,10 @@ export default function BookingPage() {
                     'שלחי בקשה לתור ✨'
                   )}
                 </button>
-
               </form>
             </div>
           )}
+
 
           {/* ═══ שלב 4: הצלחה ═══════════════════════════════════ */}
           {step === 4 && (
@@ -704,24 +722,39 @@ export default function BookingPage() {
                               animate-bounce">
                 <CheckCircle className="w-12 h-12 text-green-500" />
               </div>
+
+              {/* ✅ כותרת דינמית */}
               <h2 className="text-2xl font-bold text-gray-800 mb-2">
-                הבקשה נשלחה! 🎉
+                {autoConfirmed ? 'התור אושר! 🎉' : 'הבקשה נשלחה! 🎉'}
               </h2>
+
+              {/* ✅ תיאור דינמי */}
               <p className="text-gray-500 leading-relaxed mb-2">
-                הבקשה לתור ב-
-                <span className="font-semibold text-gray-700">
-                  {parseDateStr(selectedDate).toLocaleDateString('he-IL', {
-                    weekday: 'long', day: 'numeric', month: 'long',
-                  })}
-                </span>
-                {' '}בשעה{' '}
-                <span className="font-semibold text-gray-700">
-                  {selectedTime}
-                </span>
-                {' '}התקבלה.
+                {autoConfirmed
+                  ? (providerSettings?.confirmationMessage?.trim() ||
+                      `התור שלך ל${combinedTitle} ב${parseDateStr(selectedDate).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })} בשעה ${selectedTime} אושר ונכנס ליומן ✅`)
+                  : <>
+                      הבקשה לתור ב-
+                      <span className="font-semibold text-gray-700">
+                        {parseDateStr(selectedDate).toLocaleDateString('he-IL', {
+                          weekday: 'long', day: 'numeric', month: 'long',
+                        })}
+                      </span>
+                      {' '}בשעה{' '}
+                      <span className="font-semibold text-gray-700">
+                        {selectedTime}
+                      </span>
+                      {' '}התקבלה.
+                    </>
+                }
               </p>
+
+              {/* ✅ הודעת פתיחה דינמית */}
               <p className="text-gray-400 text-sm mb-8">
-                ניצור קשר בהקדם לאישור סופי 💅
+                {autoConfirmed
+                  ? (providerSettings?.welcomeMessage?.trim() || 'מצפות לראות אותך! 💅')
+                  : 'ניצור קשר בהקדם לאישור סופי 💅'
+                }
               </p>
 
               {/* כפתור הוספה ליומן */}
@@ -743,7 +776,8 @@ export default function BookingPage() {
                     `SUMMARY:תור ל${combinedTitle} — ${businessName}`,
                     `DESCRIPTION:טיפולים: ${combinedTitle}\\nמחיר: ₪${totalPrice}\\nמשך: ${totalDuration} דקות`,
                     `LOCATION:${businessName}`,
-                    'STATUS:TENTATIVE',
+                    // ✅ STATUS דינמי לפי autoConfirmed
+                    autoConfirmed ? 'STATUS:CONFIRMED' : 'STATUS:TENTATIVE',
                     'END:VEVENT', 'END:VCALENDAR',
                   ].join('\r\n');
 
@@ -770,6 +804,7 @@ export default function BookingPage() {
           )}
 
         </div>
+
 
         {/* ✅ כפתור "המשך" צף בשלב 1 */}
         {step === 1 && selectedServices.length > 0 && (
