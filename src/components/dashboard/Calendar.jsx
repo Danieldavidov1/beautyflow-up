@@ -13,7 +13,7 @@ import {
   Plus, Clock, User, UserPlus, X, Trash2, CheckCircle,
   AlertCircle, Edit, Search, Tag, Wallet, Check,
   LayoutList, CalendarDays, Minus, AlertTriangle, Lock,
-  ExternalLink
+  ExternalLink, Phone, FileText,
 } from 'lucide-react';
 import gsap from 'gsap';
 import CalendarView from './CalendarView';
@@ -290,14 +290,13 @@ function ChargeModal({ isOpen, appointment, onConfirmWithCharge, onConfirmWithou
 }
 
 // ── NotesAccordion ─────────────────────────────────────────────────────────
-function NotesAccordion({ value, onChange }) {
-  const hasContent  = value && value.trim().length > 0;
-  // הפיתרון הנקי: הסטטוס נקבע רק פעם אחת ברגע שהקומפוננטה נוצרת
-  const [isOpen, setIsOpen] = useState(hasContent);
+// ✅ Updated: always collapsed by default, pink dot badge, optional readOnly mode
+function NotesAccordion({ value, onChange, readOnly = false }) {
+  const hasContent = value && value.trim().length > 0;
+  const [isOpen, setIsOpen] = useState(false); // ✅ always start collapsed
   const contentRef  = useRef(null);
   const textareaRef = useRef(null);
 
-  // GSAP אנימציה בפתיחה/סגירה
   useEffect(() => {
     if (!contentRef.current) return;
     if (isOpen) {
@@ -305,59 +304,67 @@ function NotesAccordion({ value, onChange }) {
         contentRef.current,
         { height: 0, opacity: 0 },
         { height: 'auto', opacity: 1, duration: 0.28, ease: 'power2.out',
-          onComplete: () => textareaRef.current?.focus() }
+          onComplete: () => { if (!readOnly) textareaRef.current?.focus(); } }
       );
     } else {
       gsap.to(contentRef.current, {
         height: 0, opacity: 0, duration: 0.22, ease: 'power2.in',
       });
     }
-  }, [isOpen]);
+  }, [isOpen, readOnly]);
+
+  // If readOnly and no content, nothing to show
+  if (readOnly && !hasContent) return null;
 
   return (
     <div>
-      {/* כפתור toggle */}
       <button
         type="button"
         onClick={() => setIsOpen((p) => !p)}
         className="flex items-center gap-1.5 text-xs font-medium text-gray-400
                    hover:text-[#e5007e] transition-colors group"
       >
-        <span
-          className="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600
-                     group-hover:border-[#e5007e] flex items-center justify-center
-                     transition-colors text-gray-400 group-hover:text-[#e5007e]"
-          style={{ fontSize: '10px', lineHeight: 1 }}
-        >
-          {isOpen ? '−' : '+'}
+        <FileText className="w-3.5 h-3.5 group-hover:text-[#e5007e] transition-colors" />
+        <span>
+          {isOpen
+            ? 'הסתר הערות'
+            : hasContent
+              ? readOnly ? '📝 הצג הערות' : '📝 יש הערה לתור'
+              : '➕ הוסף הערות (אופציונלי)'}
         </span>
-        {isOpen
-          ? 'הסתר הערות'
-          : hasContent
-            ? '📝 יש הערה לתור (לחצי לעריכה)'
-            : '➕ הוסף הערות לתור (אופציונלי)'}
+        {/* ✅ Pink dot badge — visible when collapsed and has content */}
+        {hasContent && !isOpen && (
+          <span className="w-2 h-2 rounded-full bg-[#e5007e] shrink-0 animate-pulse" />
+        )}
       </button>
 
-      {/* תוכן — נסתר כברירת מחדל */}
-      <div
-        ref={contentRef}
-        style={{ height: 0, overflow: 'hidden', opacity: 0 }}
-      >
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="הערות לתור — חומרים, רגישויות, דגשים..."
-          rows={3}
-          className={`${inputCls} resize-none mt-2`}
-        />
+      <div ref={contentRef} style={{ height: 0, overflow: 'hidden', opacity: 0 }}>
+        {readOnly ? (
+          <p className="mt-2 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-sm
+                        text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+            {value}
+          </p>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="הערות לתור — חומרים, רגישויות, דגשים..."
+            rows={3}
+            className={`${inputCls} resize-none mt-2`}
+          />
+        )}
       </div>
     </div>
   );
 }
 
 // ── AppointmentModal ───────────────────────────────────────────────────────
-function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, businessHours, closedDays, setCurrentPage, onCompleteClick, onDeleteClick }) {
+function AppointmentModal({
+  isOpen, onClose, onSave, selectedDate, initialData,
+  businessHours, closedDays, setCurrentPage,
+  onCompleteClick, onDeleteClick, onCancelClick,
+}) {
   const { customers, addCustomer } = useCustomers();
   const { activeServices }         = useServices();
   const { showToast }              = useToast();
@@ -365,6 +372,7 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
   const overlayRef = useRef(null);
   const modalRef   = useRef(null);
 
+  // ── Core form state ────────────────────────────────────────────────
   const [saving,              setSaving]              = useState(false);
   const [formData,            setFormData]            = useState(EMPTY_FORM);
   const [isAddingNewCustomer, setIsAddingNewCustomer] = useState(false);
@@ -373,18 +381,65 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
   const [customTitle,         setCustomTitle]         = useState('');
   const [showCustomInput,     setShowCustomInput]     = useState(false);
 
+  // ── View/Edit mode + Cancel panel ─────────────────────────────────
+  const [mode,            setMode]           = useState('edit'); // 'view' | 'edit'
+  const [showCancelPanel, setShowCancelPanel] = useState(false);
+  const [cancelReason,    setCancelReason]   = useState('');
+  const [cancelling,      setCancelling]     = useState(false);
+
   const isEditing = !!initialData?.id;
 
+  // ── Business hours check ───────────────────────────────────────────
   const businessHoursCheck = useMemo(() => {
     if (!businessHours || !formData.date || !formData.startTime || !formData.endTime) return { allowed: true };
     return checkTimeInBusinessHours(businessHours, closedDays ?? [], formData.date, formData.startTime, formData.endTime);
   }, [businessHours, closedDays, formData.date, formData.startTime, formData.endTime]);
 
+  // ── Derived view-mode data ─────────────────────────────────────────
+  // Change 4: handles BOTH services[] array (online booking) and single serviceId (manual)
+  const viewServices = useMemo(() => {
+    if (formData.services && formData.services.length > 0) {
+      return formData.services.map((s) => ({
+        ...s,
+        qty:      Number(s.qty)      || 1,
+        price:    Number(s.price)    || 0,
+        duration: Number(s.duration) || 0,
+        color:    s.color            || '#e5007e',
+      }));
+    }
+    // Fall back to single serviceId / serviceTitle fields
+    if (formData.serviceTitle || formData.title) {
+      return [{
+        serviceId: formData.serviceId || 'custom',
+        title:     formData.serviceTitle || formData.title || 'טיפול',
+        price:     Number(formData.price)    || 0,
+        duration:  Number(formData.duration) || 0,
+        qty:       1,
+        color:     formData.color || '#e5007e',
+      }];
+    }
+    return [];
+  }, [formData]);
+
+  const viewCustomer   = useMemo(() => customers.find((c) => c.id === formData.customerId), [customers, formData.customerId]);
+  const totalDuration  = useMemo(() => viewServices.reduce((sum, s) => sum + s.duration * s.qty, 0), [viewServices]);
+  const totalPrice     = useMemo(() => viewServices.reduce((sum, s) => sum + s.price * s.qty, 0), [viewServices]);
+  const displayDate    = useMemo(() => {
+    if (!formData.date) return '';
+    return new Date(formData.date + 'T12:00:00').toLocaleDateString('he-IL', {
+      weekday: 'long', day: 'numeric', month: 'long',
+    });
+  }, [formData.date]);
+
+  // ── Load data on open ──────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     if (initialData && initialData.id) {
-      let loadedServices = initialData.services && initialData.services.length > 0 ? initialData.services : [];
-      loadedServices = loadedServices.map(s => ({
+      // Change 4: load services array if present, otherwise fall back to single serviceId
+      let loadedServices = initialData.services && initialData.services.length > 0
+        ? initialData.services
+        : [];
+      loadedServices = loadedServices.map((s) => ({
         ...s,
         qty:      Number(s.qty)      || 1,
         price:    Number(s.price)    || 0,
@@ -407,16 +462,24 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
       } else {
         setCustomTitle(''); setShowCustomInput(false);
       }
+      setMode('view'); // ✅ Change 1: existing → view card first
     } else if (initialData && !initialData.id) {
       setFormData({ ...EMPTY_FORM, date: initialData.date, startTime: initialData.startTime, endTime: initialData.endTime });
       setCustomTitle(''); setShowCustomInput(false);
+      setMode('edit'); // new appointment → edit directly
     } else {
       setFormData({ ...EMPTY_FORM, date: selectedDate ?? toDateStr(new Date()) });
       setCustomTitle(''); setShowCustomInput(false);
+      setMode('edit');
     }
-    setSaving(false); setIsAddingNewCustomer(false); setNewCustomer({ name: '', phone: '' });
+    setSaving(false);
+    setIsAddingNewCustomer(false);
+    setNewCustomer({ name: '', phone: '' });
+    setShowCancelPanel(false);
+    setCancelReason('');
   }, [isOpen, initialData, selectedDate]);
 
+  // ── GSAP open animation ────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !overlayRef.current || !modalRef.current) return;
     gsap.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 1, duration: 0.2 });
@@ -433,19 +496,20 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
 
   const handleServicesChange = useCallback((newServices, isCustom = false) => {
     if (isCustom) { setShowCustomInput(true); return; }
-    const totalDuration = newServices.reduce((sum, s) => sum + s.duration * s.qty, 0);
-    const totalPrice    = newServices.reduce((sum, s) => sum + s.price * s.qty, 0);
-    const titles        = newServices.map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title);
-    const firstColor    = newServices[0]?.color ?? '#e5007e';
+    const totalDur  = newServices.reduce((sum, s) => sum + s.duration * s.qty, 0);
+    const totalPrc  = newServices.reduce((sum, s) => sum + s.price * s.qty, 0);
+    const titles    = newServices.map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title);
+    const firstColor = newServices[0]?.color ?? '#e5007e';
     setFormData((p) => ({
-      ...p, services: newServices, title: titles.join(' + ') || '', price: totalPrice,
-      color: firstColor, endTime: totalDuration > 0 ? addMinutesToTime(p.startTime, totalDuration) : p.endTime,
+      ...p, services: newServices, title: titles.join(' + ') || '', price: totalPrc,
+      color: firstColor, endTime: totalDur > 0 ? addMinutesToTime(p.startTime, totalDur) : p.endTime,
     }));
     if (newServices.length > 0) { setShowCustomInput(false); setCustomTitle(''); }
   }, []);
 
   const handleQuickAddCustomer = async () => {
-    const name  = newCustomer.name.trim(); const phone = newCustomer.phone.trim();
+    const name  = newCustomer.name.trim();
+    const phone = newCustomer.phone.trim();
     if (!name) { showToast('חובה להזין שם לקוחה', 'error'); return; }
     setSavingNewCustomer(true);
     try {
@@ -457,41 +521,27 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
 
   const handleStartTimeChange = (newStartTime) => {
     setFormData((p) => {
-      const totalDuration = p.services.reduce((sum, s) => sum + s.duration * s.qty, 0);
-      return { ...p, startTime: newStartTime, endTime: totalDuration > 0 ? addMinutesToTime(newStartTime, totalDuration) : p.endTime };
+      const dur = p.services.reduce((sum, s) => sum + s.duration * s.qty, 0);
+      return { ...p, startTime: newStartTime, endTime: dur > 0 ? addMinutesToTime(newStartTime, dur) : p.endTime };
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
-
-    const hasValidServices =
-      formData.services.length > 0 ||
-      (showCustomInput && customTitle.trim() !== '');
-
-    if (!formData.customerId) { showToast('יש לבחור לקוחה', 'error'); return; }
-    if (!hasValidServices)    { showToast('יש לבחור לפחות טיפול אחד', 'error'); return; }
+    const hasValidServices = formData.services.length > 0 || (showCustomInput && customTitle.trim() !== '');
+    if (!formData.customerId)  { showToast('יש לבחור לקוחה', 'error'); return; }
+    if (!hasValidServices)     { showToast('יש לבחור לפחות טיפול אחד', 'error'); return; }
     if (formData.endTime <= formData.startTime) { showToast('שעת הסיום חייבת להיות אחרי שעת ההתחלה', 'error'); return; }
     if (!businessHoursCheck.allowed) showToast(`⚠️ התור מחוץ לשעות הפעילות: ${businessHoursCheck.reason}`, 'warning');
-
     setSaving(true);
     const customer = customers.find((c) => c.id === formData.customerId);
-
-    let finalTitle = showCustomInput
-      ? customTitle.trim()
-      : formData.title.trim();
-
+    let finalTitle = showCustomInput ? customTitle.trim() : formData.title.trim();
     if (!finalTitle) {
-      if (formData.services.length > 0) {
-        finalTitle = formData.services
-          .map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title)
-          .join(' + ');
-      } else {
-        finalTitle = `תור ${formData.date}`;
-      }
+      finalTitle = formData.services.length > 0
+        ? formData.services.map((s) => s.qty > 1 ? `${s.title} x${s.qty}` : s.title).join(' + ')
+        : `תור ${formData.date}`;
     }
-
     try {
       await onSave({
         ...formData,
@@ -509,6 +559,20 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
     }
   };
 
+  // ✅ Change 2: cancel handler — calls parent's onCancelClick(apt, reason)
+  const handleCancelAppointment = async () => {
+    if (!formData.id || !onCancelClick) return;
+    setCancelling(true);
+    try {
+      await onCancelClick(formData, cancelReason.trim());
+      handleClose();
+    } catch {
+      showToast('שגיאה בביטול התור', 'error');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const handleNavigateToCustomer = () => {
     if (!formData.customerId || !setCurrentPage) return;
     handleClose();
@@ -516,18 +580,25 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
   };
 
   if (!isOpen) return null;
-  const hasValidServices =
-    formData.services.length > 0 ||
-    (showCustomInput && customTitle.trim() !== '');
-  const canSubmit = formData.customerId && hasValidServices && !saving;
+
+  const hasValidServices = formData.services.length > 0 || (showCustomInput && customTitle.trim() !== '');
+  const canSubmit        = formData.customerId && hasValidServices && !saving;
+  const isCancelledOrCompleted = formData.status === 'cancelled' || formData.status === 'completed';
 
   return (
-    <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto" onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }} dir="rtl">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto"
+      onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }}
+      dir="rtl"
+    >
       <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md my-4 overflow-hidden">
 
-        {/* Header */}
+        {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center sticky top-0 bg-white dark:bg-gray-800 z-10 rounded-t-2xl">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white">{isEditing ? 'עריכת תור ✏️' : 'תור חדש ✨'}</h2>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white">
+            {!isEditing ? 'תור חדש ✨' : mode === 'view' ? 'פרטי תור' : 'עריכת תור ✏️'}
+          </h2>
           <div className="flex items-center gap-1">
             {isEditing && (
               <button
@@ -539,10 +610,13 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
                 <Trash2 size={18} />
               </button>
             )}
-            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#e5007e] rounded-full hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors"><X size={20} /></button>
+            <button onClick={handleClose} className="p-2 text-gray-400 hover:text-[#e5007e] rounded-full hover:bg-pink-50 dark:hover:bg-gray-700 transition-colors">
+              <X size={20} />
+            </button>
           </div>
         </div>
 
+        {/* ── Navigate to customer card (always visible when editing) ── */}
         {isEditing && formData.customerId && (
           <div className="px-6 pt-4 pb-0">
             <button
@@ -561,59 +635,314 @@ function AppointmentModal({ isOpen, onClose, onSave, selectedDate, initialData, 
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            {isAddingNewCustomer ? (
-              <div className="bg-pink-50/60 dark:bg-[#e5007e]/10 p-4 rounded-xl border border-pink-100 dark:border-[#e5007e]/20 relative">
-                <button type="button" onClick={() => { setIsAddingNewCustomer(false); setNewCustomer({ name: '', phone: '' }); }} className="absolute top-3 left-3 p-1 text-gray-400 hover:text-gray-600 rounded-full transition-colors"><X size={15} /></button>
-                <h4 className="text-sm font-bold text-[#e5007e] flex items-center gap-1.5 mb-3"><UserPlus size={15} /> לקוחה חדשה</h4>
-                <div className="space-y-2.5">
-                  <input type="text" placeholder="שם מלא *" value={newCustomer.name} onChange={(e) => setNewCustomer((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleQuickAddCustomer())} className={inputCls} autoFocus />
-                  <input type="tel" placeholder="טלפון (אופציונלי)" value={newCustomer.phone} onChange={(e) => setNewCustomer((p) => ({ ...p, phone: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleQuickAddCustomer())} className={inputCls} dir="ltr" />
-                  <button type="button" onClick={handleQuickAddCustomer} disabled={savingNewCustomer || !newCustomer.name.trim()} className="w-full py-2 bg-[#e5007e] hover:bg-[#b30062] text-white font-bold rounded-xl text-sm disabled:opacity-50 transition-colors shadow-md shadow-pink-500/20">{savingNewCustomer ? 'שומר...' : '✓ שמירה ובחירה'}</button>
+        {/* ═══════════════════════════════════════════════════════════════
+            CHANGE 1: VIEW MODE — Read-Only Card
+        ════════════════════════════════════════════════════════════════ */}
+        {isEditing && mode === 'view' && (
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+
+            {/* Customer name + phone + status */}
+            <div className="flex items-start justify-between gap-3 mb-5">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                  {viewCustomer?.name || formData.customerName || 'לקוחה לא ידועה'}
+                </h3>
+                {(viewCustomer?.phone || formData.customerPhone) && (
+                  <a
+                    href={`tel:${viewCustomer?.phone || formData.customerPhone}`}
+                    className="text-sm text-[#e5007e] font-medium flex items-center gap-1 mt-1 hover:underline"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span dir="ltr">{viewCustomer?.phone || formData.customerPhone}</span>
+                  </a>
+                )}
+              </div>
+              <span className={`px-2.5 py-1 rounded-xl text-xs font-bold shrink-0 ${STATUS_META[formData.status]?.cls ?? ''}`}>
+                {STATUS_META[formData.status]?.label ?? formData.status}
+              </span>
+            </div>
+
+            {/* Services list — handles BOTH services[] and single serviceId (Change 4) */}
+            <div className="space-y-2 mb-4">
+              {viewServices.length > 0 ? (
+                viewServices.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-pink-50 dark:bg-[#e5007e]/10 border border-pink-100 dark:border-[#e5007e]/20">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color || '#e5007e' }} />
+                    <span className="text-sm font-medium text-gray-800 dark:text-white flex-1">
+                      {s.title}{s.qty > 1 ? ` x${s.qty}` : ''}
+                    </span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
+                      {s.duration * s.qty} דק׳
+                    </span>
+                    <span className="text-sm font-bold text-[#e5007e] shrink-0 min-w-[52px] text-left">
+                      ₪{(s.price * s.qty).toLocaleString('he-IL')}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-400 dark:text-gray-500 italic">אין טיפולים רשומים</p>
+              )}
+
+              {/* Total row */}
+              {viewServices.length > 1 && (
+                <div className="flex justify-between text-xs font-semibold text-gray-500 dark:text-gray-400 px-1 pt-1.5 border-t border-gray-100 dark:border-gray-700 mt-1">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> סה״כ {totalDuration} דק׳
+                  </span>
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    ₪{totalPrice.toLocaleString('he-IL')}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Date + Time */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <CalendarIcon className="w-4 h-4 text-[#e5007e] shrink-0" />
+                <span className="text-sm text-gray-700 dark:text-gray-200 leading-tight">{displayDate}</span>
+              </div>
+              <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                <Clock className="w-4 h-4 text-[#e5007e] shrink-0" />
+                <span className="text-sm text-gray-700 dark:text-gray-200">
+                  {formData.startTime} – {formData.endTime}
+                </span>
+              </div>
+            </div>
+
+            {/* Change 3: Notes — collapsed by default, read-only in view mode */}
+            <div className="mb-4">
+              <NotesAccordion
+                value={formData.notes || ''}
+                onChange={() => {}} // no-op in read-only
+                readOnly
+              />
+            </div>
+
+            {/* Change 2: Cancellation panel OR action buttons */}
+            {showCancelPanel ? (
+              <div className="mt-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-2xl">
+                <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-2 flex items-center gap-1.5">
+                  🚫 ביטול תור
+                </p>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  maxLength={200}
+                  rows={2}
+                  placeholder="סיבת ביטול (אופציונלי)..."
+                  className="w-full p-2.5 rounded-xl border border-red-200 dark:border-red-700
+                             bg-white dark:bg-gray-800 text-sm resize-none
+                             focus:outline-none focus:ring-1 focus:ring-red-400
+                             dark:text-white placeholder-gray-400"
+                />
+                <p className="text-right text-[11px] text-gray-400 mb-2">{cancelReason.length}/200</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowCancelPanel(false); setCancelReason(''); }}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
+                               text-sm font-medium text-gray-600 dark:text-gray-300
+                               hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    חזור
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelAppointment}
+                    disabled={cancelling}
+                    className="flex-[2] py-2.5 rounded-xl bg-red-500 hover:bg-red-600
+                               text-white text-sm font-bold transition-colors
+                               disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {cancelling
+                      ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> מבטל...</>
+                      : '✅ אשר ביטול'}
+                  </button>
                 </div>
               </div>
             ) : (
-              <><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">לקוחה <span className="text-[#e5007e]">*</span></label>
-                <div className="flex gap-2 items-start"><div className="flex-1"><CustomerSelect customers={customers} value={formData.customerId} onChange={(val) => set('customerId', val)} /></div><button type="button" onClick={() => setIsAddingNewCustomer(true)} title="הוספת לקוחה חדשה" className="h-[42px] px-3 bg-pink-50 dark:bg-[#e5007e]/10 text-[#e5007e] font-bold rounded-xl shrink-0 hover:bg-pink-100 dark:hover:bg-[#e5007e]/20 transition-colors flex items-center gap-1.5 text-sm"><UserPlus size={16} /><span className="hidden sm:inline">חדשה</span></button></div>
-              </>
+              <div className="flex flex-col gap-2 mt-2">
+                {/* Complete + payment button */}
+                {!isCancelledOrCompleted && (
+                  <button
+                    type="button"
+                    onClick={() => { onCompleteClick(formData); handleClose(); }}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3
+                               rounded-xl font-bold flex items-center justify-center gap-2
+                               shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+                  >
+                    <CheckCircle className="w-5 h-5" /> השלמת תור + תשלום
+                  </button>
+                )}
+
+                {/* Edit + Cancel row */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode('edit')}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600
+                               text-sm font-medium text-gray-600 dark:text-gray-300
+                               hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors
+                               flex items-center justify-center gap-1.5"
+                  >
+                    <Edit className="w-4 h-4" /> עריכה
+                  </button>
+                  {!isCancelledOrCompleted && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelPanel(true)}
+                      className="flex-1 py-2.5 rounded-xl border border-red-200 dark:border-red-800
+                                 text-red-500 dark:text-red-400
+                                 hover:bg-red-50 dark:hover:bg-red-900/20
+                                 text-sm font-medium transition-colors
+                                 flex items-center justify-center gap-1.5"
+                    >
+                      🚫 בטל תור
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1"><span className="flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> טיפולים <span className="text-[#e5007e]">*</span></span></label>
-            {showCustomInput ? (
-              <div className="space-y-2"><input type="text" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} placeholder="שם הטיפול המותאם..." className={inputCls} autoFocus /><button type="button" onClick={() => { setShowCustomInput(false); setCustomTitle(''); }} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline transition-colors">← חזור לבחירה מהמחירון</button></div>
-            ) : (<ServiceSelector activeServices={activeServices} selectedServices={formData.services} onChange={handleServicesChange} startTime={formData.startTime} />)}
-            {!showCustomInput && formData.services.length === 0 && (<button type="button" onClick={() => setShowCustomInput(true)} className="mt-2 text-xs text-gray-400 hover:text-[#e5007e] transition-colors underline">+ טיפול מותאם אישית שאינו במחירון</button>)}
-          </div>
-          <div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">תאריך <span className="text-[#e5007e]">*</span></label><input required type="date" value={formData.date} onChange={(e) => set('date', e.target.value)} className={inputCls} /></div>
-          <div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">שעת התחלה <span className="text-[#e5007e]">*</span></label><input required type="time" value={formData.startTime} onChange={(e) => handleStartTimeChange(e.target.value)} className={inputCls} /></div><div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">שעת סיום <span className="text-[#e5007e]">*</span></label><input required type="time" value={formData.endTime} onChange={(e) => set('endTime', e.target.value)} className={inputCls} /></div></div>
-          {!businessHoursCheck.allowed && (<div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50"><AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" /><div><p className="text-xs font-semibold text-amber-700 dark:text-amber-400">מחוץ לשעות הפעילות</p><p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{businessHoursCheck.reason} — ניתן לשמור בכל זאת</p></div></div>)}
-          {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (<p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 pr-1 flex items-center gap-1"><Clock className="w-3 h-3" /> משך: {(() => { const [sh, sm] = formData.startTime.split(':').map(Number); const [eh, em] = formData.endTime.split(':').map(Number); const diff = (eh * 60 + em) - (sh * 60 + sm); return diff >= 60 ? `${Math.floor(diff / 60)}:${String(diff % 60).padStart(2, '0')} שעות` : `${diff} דקות`; })()}</p>)}
-          {isEditing && (<div><label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">סטטוס</label><select value={formData.status} onChange={(e) => set('status', e.target.value)} className={inputCls}><option value="scheduled">מתוכנן</option><option value="completed">הושלם</option><option value="cancelled">בוטל</option></select></div>)}
-          
-          {/* ✅ כאן שילבנו את קומפוננטת האקורדיון של ההערות */}
-          <NotesAccordion
-            value={formData.notes || ''}
-            onChange={(val) => set('notes', val)}
-          />
+        )}
 
-          <div className="pt-2 flex flex-col gap-3">
-            {isEditing && formData.status !== 'completed' && (
+        {/* ═══════════════════════════════════════════════════════════════
+            CHANGE 1: EDIT MODE — Form (new appointments OR after clicking Edit)
+        ════════════════════════════════════════════════════════════════ */}
+        {(!isEditing || mode === 'edit') && (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+
+            {/* Back to view card button (only when editing existing) */}
+            {isEditing && (
               <button
                 type="button"
-                onClick={() => { onCompleteClick(formData); handleClose(); }}
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
+                onClick={() => setMode('view')}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#e5007e] transition-colors -mb-1"
               >
-                <CheckCircle className="w-5 h-5" /> סיום וקבלת תשלום
+                <ChevronRight className="w-3.5 h-3.5" /> חזור לתצוגת תור
               </button>
             )}
-            <div className="flex gap-3 w-full">
-              <button type="button" onClick={handleClose} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">ביטול</button>
-              <button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 rounded-xl bg-[#e5007e] hover:bg-[#b30062] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/20">{saving ? 'שומר...' : isEditing ? '💾 שמור שינויים' : '✅ קביעת תור'}</button>
+
+            {/* Customer selector */}
+            <div>
+              {isAddingNewCustomer ? (
+                <div className="bg-pink-50/60 dark:bg-[#e5007e]/10 p-4 rounded-xl border border-pink-100 dark:border-[#e5007e]/20 relative">
+                  <button type="button" onClick={() => { setIsAddingNewCustomer(false); setNewCustomer({ name: '', phone: '' }); }} className="absolute top-3 left-3 p-1 text-gray-400 hover:text-gray-600 rounded-full transition-colors"><X size={15} /></button>
+                  <h4 className="text-sm font-bold text-[#e5007e] flex items-center gap-1.5 mb-3"><UserPlus size={15} /> לקוחה חדשה</h4>
+                  <div className="space-y-2.5">
+                    <input type="text" placeholder="שם מלא *" value={newCustomer.name} onChange={(e) => setNewCustomer((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleQuickAddCustomer())} className={inputCls} autoFocus />
+                    <input type="tel" placeholder="טלפון (אופציונלי)" value={newCustomer.phone} onChange={(e) => setNewCustomer((p) => ({ ...p, phone: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleQuickAddCustomer())} className={inputCls} dir="ltr" />
+                    <button type="button" onClick={handleQuickAddCustomer} disabled={savingNewCustomer || !newCustomer.name.trim()} className="w-full py-2 bg-[#e5007e] hover:bg-[#b30062] text-white font-bold rounded-xl text-sm disabled:opacity-50 transition-colors shadow-md shadow-pink-500/20">{savingNewCustomer ? 'שומר...' : '✓ שמירה ובחירה'}</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                    לקוחה <span className="text-[#e5007e]">*</span>
+                  </label>
+                  <div className="flex gap-2 items-start">
+                    <div className="flex-1">
+                      <CustomerSelect customers={customers} value={formData.customerId} onChange={(val) => set('customerId', val)} />
+                    </div>
+                    <button type="button" onClick={() => setIsAddingNewCustomer(true)} title="הוספת לקוחה חדשה" className="h-[42px] px-3 bg-pink-50 dark:bg-[#e5007e]/10 text-[#e5007e] font-bold rounded-xl shrink-0 hover:bg-pink-100 dark:hover:bg-[#e5007e]/20 transition-colors flex items-center gap-1.5 text-sm">
+                      <UserPlus size={16} /><span className="hidden sm:inline">חדשה</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        </form>
+
+            {/* Services selector */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                <span className="flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> טיפולים <span className="text-[#e5007e]">*</span></span>
+              </label>
+              {showCustomInput ? (
+                <div className="space-y-2">
+                  <input type="text" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} placeholder="שם הטיפול המותאם..." className={inputCls} autoFocus />
+                  <button type="button" onClick={() => { setShowCustomInput(false); setCustomTitle(''); }} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline transition-colors">← חזור לבחירה מהמחירון</button>
+                </div>
+              ) : (
+                <ServiceSelector activeServices={activeServices} selectedServices={formData.services} onChange={handleServicesChange} startTime={formData.startTime} />
+              )}
+              {!showCustomInput && formData.services.length === 0 && (
+                <button type="button" onClick={() => setShowCustomInput(true)} className="mt-2 text-xs text-gray-400 hover:text-[#e5007e] transition-colors underline">+ טיפול מותאם אישית שאינו במחירון</button>
+              )}
+            </div>
+
+            {/* Date */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">תאריך <span className="text-[#e5007e]">*</span></label>
+              <input required type="date" value={formData.date} onChange={(e) => set('date', e.target.value)} className={inputCls} />
+            </div>
+
+            {/* Start + End time */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">שעת התחלה <span className="text-[#e5007e]">*</span></label>
+                <input required type="time" value={formData.startTime} onChange={(e) => handleStartTimeChange(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">שעת סיום <span className="text-[#e5007e]">*</span></label>
+                <input required type="time" value={formData.endTime} onChange={(e) => set('endTime', e.target.value)} className={inputCls} />
+              </div>
+            </div>
+
+            {/* Business hours warning */}
+            {!businessHoursCheck.allowed && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">מחוץ לשעות הפעילות</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{businessHoursCheck.reason} — ניתן לשמור בכל זאת</p>
+                </div>
+              </div>
+            )}
+
+            {/* Duration display */}
+            {formData.startTime && formData.endTime && formData.endTime > formData.startTime && (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 pr-1 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {(() => {
+                  const [sh, sm] = formData.startTime.split(':').map(Number);
+                  const [eh, em] = formData.endTime.split(':').map(Number);
+                  const diff = (eh * 60 + em) - (sh * 60 + sm);
+                  return diff >= 60 ? `${Math.floor(diff / 60)}:${String(diff % 60).padStart(2, '0')} שעות` : `${diff} דקות`;
+                })()}
+              </p>
+            )}
+
+            {/* Change 2: Status dropdown REMOVED — replaced by cancel button in view mode */}
+            {/* Change 3: Notes — collapsed by default, editable in edit mode */}
+            <NotesAccordion
+              value={formData.notes || ''}
+              onChange={(val) => set('notes', val)}
+            />
+
+            {/* Action buttons */}
+            <div className="pt-2 flex flex-col gap-3">
+              {isEditing && formData.status !== 'completed' && (
+                <button
+                  type="button"
+                  onClick={() => { onCompleteClick(formData); handleClose(); }}
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all"
+                >
+                  <CheckCircle className="w-5 h-5" /> סיום וקבלת תשלום
+                </button>
+              )}
+              <div className="flex gap-3 w-full">
+                <button type="button" onClick={isEditing ? () => setMode('view') : handleClose} className="flex-1 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                  {isEditing ? 'בטל עריכה' : 'ביטול'}
+                </button>
+                <button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 rounded-xl bg-[#e5007e] hover:bg-[#b30062] text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-500/20">
+                  {saving ? 'שומר...' : isEditing ? '💾 שמור שינויים' : '✅ קביעת תור'}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
       </div>
     </div>
   );
@@ -644,31 +973,21 @@ export default function Calendar({ setCurrentPage }) {
   const calendarBounds = useMemo(() => {
     const DEFAULT_MIN = new Date(0, 0, 0, 7, 0);
     const DEFAULT_MAX = new Date(0, 0, 0, 22, 0);
-
     if (!businessHours) return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
-
     const activeDays = Object.values(businessHours).filter((day) => day?.isActive && day.start && day.end);
     if (activeDays.length === 0) return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
-
     const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-
     let earliestMin = Infinity;
     let latestMin   = -Infinity;
-
     for (const day of activeDays) {
       const start = toMin(day.start);
       const end   = toMin(day.end);
       if (start < earliestMin) earliestMin = start;
       if (end   > latestMin)   latestMin   = end;
     }
-
-    if (earliestMin === Infinity || latestMin === -Infinity) {
-      return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
-    }
-
+    if (earliestMin === Infinity || latestMin === -Infinity) return { minTime: DEFAULT_MIN, maxTime: DEFAULT_MAX };
     const paddedMin = Math.max(0,    earliestMin - 30);
     const paddedMax = Math.min(1439, latestMin   + 30);
-
     return {
       minTime: new Date(0, 0, 0, Math.floor(paddedMin / 60), paddedMin % 60),
       maxTime: new Date(0, 0, 0, Math.floor(paddedMax / 60), paddedMax % 60),
@@ -677,7 +996,6 @@ export default function Calendar({ setCurrentPage }) {
 
   const closedDaysEvents = useMemo(() => {
     if (!businessHours) return [];
-
     let datesInView = [];
     if (gridMode === 'week') {
       datesInView = weekDays;
@@ -692,7 +1010,6 @@ export default function Calendar({ setCurrentPage }) {
         datesInView.push(d);
       }
     }
-
     const events = [];
     for (const dateObj of datesInView) {
       const dayIndex = dateObj.getDay();
@@ -741,8 +1058,7 @@ export default function Calendar({ setCurrentPage }) {
     catch (err) { showToast(err.message || 'שגיאה בחסימה', 'error'); throw err; }
   };
 
-  // ✅ Refactor B: ביטול תור → נכתב ל-activity_logs (לא treatments)
-  // eventType: 'cancellation' — מאפשר סינון נקי בעתיד ללא האק על title
+  // Refactor B: ביטול תור → נכתב ל-activity_logs
   const handleDeleteConfirm = async (reason) => {
     if (!deletingApt) return;
     try {
@@ -766,6 +1082,29 @@ export default function Calendar({ setCurrentPage }) {
     }
   };
 
+  // ✅ Change 2: Cancel (status → 'cancelled') — does NOT delete the appointment
+  const handleCancelClick = useCallback(async (apt, reason) => {
+    try {
+      await updateAppointment(apt.id, { status: 'cancelled' });
+      if (apt.customerId && apt.customerId !== '__blocked__') {
+        await addDoc(collection(db, `customers/${apt.customerId}/activity_logs`), {
+          eventType:  'cancellation',
+          title:      `תור בוטל: ${apt.title}`.slice(0, 200),
+          notes:      reason ? `סיבת ביטול: ${reason}` : 'התור בוטל.',
+          price:      0,
+          date:       toDateStr(new Date()),
+          time:       new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          createdAt:  serverTimestamp(),
+        });
+      }
+      showToast('התור בוטל ✅', 'success');
+    } catch (err) {
+      console.error('[handleCancelClick]', err);
+      showToast('שגיאה בביטול התור', 'error');
+      throw err;
+    }
+  }, [updateAppointment, showToast]);
+
   const handleStatusChange = async (id, newStatus) => {
     try { await updateAppointment(id, { status: newStatus }); showToast('סטטוס עודכן ✓', 'success'); }
     catch { showToast('שגיאה בעדכון', 'error'); }
@@ -776,8 +1115,7 @@ export default function Calendar({ setCurrentPage }) {
     else handleStatusChange(apt.id, 'completed');
   };
 
-  // ✅ Refactor B: תשלום → נכתב ל-activity_logs (לא treatments)
-  // eventType: 'payment' — מאפשר חישוב הכנסות נקי ללא סינון לפי title
+  // Refactor B: תשלום → נכתב ל-activity_logs
   const handleConfirmCharge = async (apt) => {
     try {
       await addTransaction({
@@ -817,17 +1155,9 @@ export default function Calendar({ setCurrentPage }) {
   const handleSelectSlot = ({ start, end }) => {
     const date     = toDateStr(start);
     const dayIndex = start.getDay();
-
     const cfg = businessHours?.[dayIndex];
-    if (!cfg || !cfg.isActive) {
-      showToast('לא ניתן לקבוע תור ביום סגור', 'error');
-      return;
-    }
-    if (closedDays?.includes(date)) {
-      showToast('לא ניתן לקבוע תור ביום חופשה', 'error');
-      return;
-    }
-
+    if (!cfg || !cfg.isActive) { showToast('לא ניתן לקבוע תור ביום סגור', 'error'); return; }
+    if (closedDays?.includes(date)) { showToast('לא ניתן לקבוע תור ביום חופשה', 'error'); return; }
     let startTime = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
     let endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
     if (startTime === '00:00' && endTime === '00:00') { startTime = '10:00'; endTime = '11:00'; }
@@ -835,40 +1165,30 @@ export default function Calendar({ setCurrentPage }) {
     setIsModalOpen(true);
   };
 
-  // ✅ Refactor B: שינוי מועד (גרירה) → נכתב ל-activity_logs (לא treatments)
-  // eventType: 'reschedule' — מאפשר סינון נקי בעתיד
+  // Refactor B: שינוי מועד (גרירה) → activity_logs
   const handleEventDrop = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date = toDateStr(start);
     let startTime = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
     let endTime   = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
-    if (startTime === '00:00' && endTime === '00:00') {
-      startTime = event.resource.startTime;
-      endTime   = event.resource.endTime;
-    }
+    if (startTime === '00:00' && endTime === '00:00') { startTime = event.resource.startTime; endTime = event.resource.endTime; }
     try {
       await updateAppointment(event.id, { date, startTime, endTime });
       const customerId = event.resource?.customerId;
       if (customerId && customerId !== '__blocked__') {
         await addDoc(collection(db, `customers/${customerId}/activity_logs`), {
-          eventType: 'reschedule',
-          title:     'שינוי מועד תור 🔄',
-          notes:     'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
-          price:     0,
-          date:      toDateStr(new Date()),
-          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          eventType: 'reschedule', title: 'שינוי מועד תור 🔄',
+          notes: 'התור הוזז לתאריך ' + date + ' בשעה ' + startTime,
+          price: 0, date: toDateStr(new Date()),
+          time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           createdAt: serverTimestamp(),
         });
       }
       showToast('התור הוזז בהצלחה ✓', 'success');
-    } catch (err) {
-      console.error('[DnD Drop]', err);
-      showToast('שגיאה בהזזת התור', 'error');
-    }
+    } catch (err) { console.error('[DnD Drop]', err); showToast('שגיאה בהזזת התור', 'error'); }
   }, [updateAppointment, showToast]);
 
-  // ✅ Refactor B: שינוי מועד (שינוי גודל) → נכתב ל-activity_logs (לא treatments)
-  // eventType: 'reschedule' — זהה ל-handleEventDrop, ניתן לאחד לפונקציה משותפת בעתיד
+  // Refactor B: שינוי מועד (שינוי גודל) → activity_logs
   const handleEventResize = useCallback(async ({ event, start, end }) => {
     if (event.isBlocked) return;
     const date      = toDateStr(start);
@@ -879,20 +1199,15 @@ export default function Calendar({ setCurrentPage }) {
       const customerId = event.resource?.customerId;
       if (customerId && customerId !== '__blocked__') {
         await addDoc(collection(db, `customers/${customerId}/activity_logs`), {
-          eventType: 'reschedule',
-          title:     'שינוי מועד תור 🔄',
-          notes:     'התור שונה לתאריך ' + date + ' בשעה ' + startTime,
-          price:     0,
-          date:      toDateStr(new Date()),
-          time:      new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
+          eventType: 'reschedule', title: 'שינוי מועד תור 🔄',
+          notes: 'התור שונה לתאריך ' + date + ' בשעה ' + startTime,
+          price: 0, date: toDateStr(new Date()),
+          time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }),
           createdAt: serverTimestamp(),
         });
       }
       showToast('זמן התור עודכן בהצלחה ✓', 'success');
-    } catch (err) {
-      console.error('[DnD Resize]', err);
-      showToast('שגיאה בעדכון הזמן', 'error');
-    }
+    } catch (err) { console.error('[DnD Resize]', err); showToast('שגיאה בעדכון הזמן', 'error'); }
   }, [updateAppointment, showToast]);
 
   const handleModalClose = () => { setIsModalOpen(false); setEditingApt(null); };
@@ -934,8 +1249,11 @@ export default function Calendar({ setCurrentPage }) {
           <div className="relative text-center min-w-[190px] group cursor-pointer">
             <div className="flex items-center justify-center gap-2 text-gray-900 dark:text-white group-hover:text-[#e5007e] transition-colors relative">
               <CalendarIcon className="w-5 h-5 text-[#e5007e]" />
-              <h2 className="text-base font-bold">{navTitle}</h2>
-              {gridMode === 'day' && (<input type="date" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" value={dateString} onChange={(e) => { if (e.target.value) setCurrentDate(fromDateStr(e.target.value)); }} />)}
+              <h2 className="text-base font-bold">{navTitle}
+                              </h2>
+              {gridMode === 'day' && (
+                <input type="date" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" value={dateString} onChange={(e) => { if (e.target.value) setCurrentDate(fromDateStr(e.target.value)); }} />
+              )}
             </div>
           </div>
           <button onClick={() => navigate(1)} className="p-2 text-gray-500 hover:text-[#e5007e] hover:bg-pink-50 dark:hover:bg-gray-700 rounded-full transition-colors">
@@ -969,7 +1287,9 @@ export default function Calendar({ setCurrentPage }) {
         </div>
       </div>
 
-      {error && (<div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm">{error}</div>)}
+      {error && (
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm">{error}</div>
+      )}
 
       <CalendarView
         appointments={[...appointments, ...closedDaysEvents]}
@@ -998,10 +1318,27 @@ export default function Calendar({ setCurrentPage }) {
         setCurrentPage={setCurrentPage}
         onCompleteClick={handleCompleteClick}
         onDeleteClick={(apt) => setDeletingApt(apt)}
+        onCancelClick={handleCancelClick}
       />
-      <BlockTimeModal isOpen={isBlockModalOpen} onClose={() => setIsBlockModalOpen(false)} onSave={handleSaveBlock} selectedDate={dateString} />
-      <DeleteAppointmentModal isOpen={!!deletingApt} appointmentTitle={deletingApt?.title ?? ''} onConfirm={handleDeleteConfirm} onCancel={() => setDeletingApt(null)} />
-      <ChargeModal isOpen={!!chargingApt} appointment={chargingApt} onConfirmWithCharge={handleConfirmCharge} onConfirmWithoutCharge={(apt) => { handleStatusChange(apt.id, 'completed'); setChargingApt(null); }} onCancel={() => setChargingApt(null)} />
+      <BlockTimeModal
+        isOpen={isBlockModalOpen}
+        onClose={() => setIsBlockModalOpen(false)}
+        onSave={handleSaveBlock}
+        selectedDate={dateString}
+      />
+      <DeleteAppointmentModal
+        isOpen={!!deletingApt}
+        appointmentTitle={deletingApt?.title ?? ''}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeletingApt(null)}
+      />
+      <ChargeModal
+        isOpen={!!chargingApt}
+        appointment={chargingApt}
+        onConfirmWithCharge={handleConfirmCharge}
+        onConfirmWithoutCharge={(apt) => { handleStatusChange(apt.id, 'completed'); setChargingApt(null); }}
+        onCancel={() => setChargingApt(null)}
+      />
     </div>
   );
 }
