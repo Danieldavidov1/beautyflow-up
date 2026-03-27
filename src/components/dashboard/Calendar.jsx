@@ -435,27 +435,33 @@ function AppointmentModal({
   useEffect(() => {
     if (!isOpen) return;
     if (initialData && initialData.id) {
-      // Change 4: load services array if present, otherwise fall back to single serviceId
-      let loadedServices = initialData.services && initialData.services.length > 0
-        ? initialData.services
+      // ✅ התיקון הקריטי: חילוץ חכם גם אם הנתונים מהאינטרנט פגומים (ללא services או עם 0)
+      let loadedServices = (initialData.services && Array.isArray(initialData.services) && initialData.services.length > 0) 
+        ? initialData.services 
         : [];
+        
       loadedServices = loadedServices.map((s) => ({
         ...s,
+        serviceId: s.serviceId || s.id || 'custom',
+        title:     s.title || s.serviceTitle || 'טיפול',
         qty:      Number(s.qty)      || 1,
         price:    Number(s.price)    || 0,
         duration: Number(s.duration) || 0,
         color:    s.color            || '#e5007e',
       }));
-      if (loadedServices.length === 0 && (initialData.serviceId || initialData.treatmentId)) {
+
+      // אם עדיין אין שירותים (או שנקבעו בעבר עם באג), מחלצים מהכותרת של התור!
+      if (loadedServices.length === 0 && (initialData.serviceId || initialData.treatmentId || initialData.title || initialData.serviceTitle)) {
         loadedServices = [{
           serviceId: initialData.serviceId || initialData.treatmentId || 'custom',
           title:     initialData.serviceTitle || initialData.treatmentName || initialData.title || 'טיפול',
-          price:     Number(initialData.price)    || 0,
+          price:     Number(initialData.servicePrice) || Number(initialData.price)    || 0,
           color:     initialData.color            || '#e5007e',
-          duration:  Number(initialData.duration) || 60,
+          duration:  Number(initialData.serviceDuration) || Number(initialData.duration) || 60,
           qty:       1,
         }];
       }
+
       setFormData({ ...EMPTY_FORM, ...initialData, services: loadedServices });
       if (loadedServices.length === 0 && initialData.title) {
         setCustomTitle(initialData.title); setShowCustomInput(true);
@@ -763,7 +769,7 @@ function AppointmentModal({
               </div>
             ) : (
               <div className="flex flex-col gap-2 mt-2">
-                {/* Complete + payment button */}
+                {/* Complete + payment button - ✅ ALWAYS show charge modal regardless of price */}
                 {!isCancelledOrCompleted && (
                   <button
                     type="button"
@@ -913,7 +919,6 @@ function AppointmentModal({
               </p>
             )}
 
-            {/* Change 2: Status dropdown REMOVED — replaced by cancel button in view mode */}
             {/* Change 3: Notes — collapsed by default, editable in edit mode */}
             <NotesAccordion
               value={formData.notes || ''}
@@ -1110,9 +1115,9 @@ export default function Calendar({ setCurrentPage }) {
     catch { showToast('שגיאה בעדכון', 'error'); }
   };
 
+  // ✅ התיקון: תמיד לפתוח חלון תשלום
   const handleCompleteClick = (apt) => {
-    if (apt.price && apt.price > 0) setChargingApt(apt);
-    else handleStatusChange(apt.id, 'completed');
+    setChargingApt(apt);
   };
 
   // Refactor B: תשלום → נכתב ל-activity_logs
@@ -1249,8 +1254,7 @@ export default function Calendar({ setCurrentPage }) {
           <div className="relative text-center min-w-[190px] group cursor-pointer">
             <div className="flex items-center justify-center gap-2 text-gray-900 dark:text-white group-hover:text-[#e5007e] transition-colors relative">
               <CalendarIcon className="w-5 h-5 text-[#e5007e]" />
-              <h2 className="text-base font-bold">{navTitle}
-                              </h2>
+              <h2 className="text-base font-bold">{navTitle}</h2>
               {gridMode === 'day' && (
                 <input type="date" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" value={dateString} onChange={(e) => { if (e.target.value) setCurrentDate(fromDateStr(e.target.value)); }} />
               )}

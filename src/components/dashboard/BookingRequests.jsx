@@ -215,6 +215,7 @@ export default function BookingRequests() {
           throw new Error('double_booking');
         }
 
+        // ✅ התיקון: שימוש ב-servicePrice ו-serviceDuration למניעת 0₪ ותיקון שירותים
         t.set(slotRef, {
           userId:        uid,
           customerId:    'pending_customer',
@@ -224,13 +225,18 @@ export default function BookingRequests() {
           serviceTitle:  req.serviceTitle || req.title || '',
           title:         req.serviceTitle || req.title || '',
           services: (req.services || []).map((s) => ({
-            ...s, qty: s.qty || 1, color: s.color || '#e5007e',
+            ...s, 
+            serviceId: s.serviceId || s.id || 'custom', 
+            qty: s.qty || 1, 
+            color: s.color || '#e5007e', 
+            price: Number(s.price) || 0, 
+            duration: Number(s.duration) || 0
           })),
           date:      req.date,
           startTime: req.startTime,
           endTime:   req.endTime         || '',
-          duration:  req.serviceDuration || req.duration || 0,
-          price:     req.servicePrice    || req.price    || 0,
+          duration:  Number(req.serviceDuration) || Number(req.duration) || 0,
+          price:     Number(req.servicePrice)    || Number(req.price)    || 0,
           status:    'scheduled',
           source:    'online_booking',
           notes:     req.notes           || '',
