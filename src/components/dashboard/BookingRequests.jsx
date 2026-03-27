@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../../firebase';
 import {
   collection, query, where, getDocs,
-  doc, updateDoc, addDoc, serverTimestamp, runTransaction,
+  doc, updateDoc, serverTimestamp, runTransaction, setDoc,
 } from 'firebase/firestore';
 import {
   Calendar, Clock, User, Phone, Check, X,
@@ -171,94 +171,102 @@ export default function BookingRequests() {
   useEffect(() => { fetchPendingRequests(); }, [fetchPendingRequests]);
 
   const findOrCreateCustomer = async (req) => {
-    const uid = auth.currentUser.uid;
+    const uid        = auth.currentUser.uid;
+    const cleanPhone = req.guestPhone.replace(/\D/g, '');
+
     const existing = await getDocs(query(
       collection(db, 'customers'),
       where('userId', '==', uid),
       where('phone',  '==', req.guestPhone),
     ));
     if (!existing.empty) return { customerId: existing.docs[0].id, isNew: false };
-    const newCustomer = await addDoc(collection(db, 'customers'), {
+
+    const newCustId = `cust_${uid.substring(0, 5)}_${cleanPhone}`;
+    await setDoc(doc(db, 'customers', newCustId), {
       userId:    uid,
       name:      req.guestName,
       phone:     req.guestPhone,
       source:    'online_booking',
       createdAt: serverTimestamp(),
-    });
-    return { customerId: newCustomer.id, isNew: true };
+    }, { merge: true });
+
+    return { customerId: newCustId, isNew: true };
   };
 
-  // ── אישור תור עם 2-phase lock ─────────────────────────────────────
   const handleApprove = async (req) => {
     setActionLoading(req.id);
     const reqRef = doc(db, 'bookingRequests', req.id);
+    const uid = auth.currentUser.uid;
+    
+    const cleanTime = req.startTime.replace(':', '');
+    const slotId = `apt_${uid.substring(0, 5)}_${req.date}_${cleanTime}`;
+    const slotRef = doc(db, 'appointments', slotId);
 
-    // ── שלב 1: נעילה אטומית ─────────────────────────────────────────
+    // ── שלב 1: נעילה אטומית ישירות ביומן ─────────────────────────────────────────
     try {
       await runTransaction(db, async (t) => {
         const snap = await t.get(reqRef);
         if (!snap.exists()) throw new Error('doc_missing');
         if (snap.data().status !== 'pending') throw new Error('not_pending');
-        t.update(reqRef, { status: 'processing', processingAt: serverTimestamp() });
+        
+        const slotSnap = await t.get(slotRef);
+        if (slotSnap.exists()) {
+          t.update(reqRef, { status: 'rejected', rejectReason: 'double_booking', updatedAt: serverTimestamp() });
+          throw new Error('double_booking');
+        }
+
+        t.set(slotRef, {
+          userId:        uid,
+          customerId:    'pending_customer',
+          customerName:  req.guestName,
+          customerPhone: req.guestPhone,
+          serviceId:     req.serviceId    || '',
+          serviceTitle:  req.serviceTitle || req.title || '',
+          title:         req.serviceTitle || req.title || '',
+          services: (req.services || []).map((s) => ({
+            ...s, qty: s.qty || 1, color: s.color || '#e5007e',
+          })),
+          date:      req.date,
+          startTime: req.startTime,
+          endTime:   req.endTime         || '',
+          duration:  req.serviceDuration || req.duration || 0,
+          price:     req.servicePrice    || req.price    || 0,
+          status:    'scheduled',
+          source:    'online_booking',
+          notes:     req.notes           || '',
+          createdAt: serverTimestamp(),
+        });
+
+        t.update(reqRef, { status: 'approved', updatedAt: serverTimestamp() });
       });
     } catch (lockErr) {
-      showToast('הבקשה כבר בטיפול על ידי חלון אחר', 'error');
+      if (lockErr.message === 'double_booking') {
+        showToast('השעה הזו כבר נתפסה! הבקשה נדחתה אוטומטית', 'error');
+      } else {
+        showToast('הבקשה כבר בטיפול', 'error');
+      }
       setActionLoading(null);
-      // מסיר מהרשימה המקומית כי כנראה כבר אושרה
       setRequests((prev) => prev.filter((r) => r.id !== req.id));
       return;
     }
 
-    // ── שלב 2: עבודה אסינכרונית ─────────────────────────────────────
+    // ── שלב 2: שיוך לקוח ─────────────────────────────────────
     try {
       const { customerId, isNew } = await findOrCreateCustomer(req);
 
-      await addDoc(collection(db, 'appointments'), {
-        userId:        auth.currentUser.uid,
-        customerId,
-        customerName:  req.guestName,
-        customerPhone: req.guestPhone,
-        serviceId:     req.serviceId    || '',
-        serviceTitle:  req.serviceTitle || req.title || '',
-        title:         req.serviceTitle || req.title || '',
-        services: (req.services || []).map(s => ({
-          ...s,
-          qty:   s.qty   || 1,
-          color: s.color || '#e5007e',
-        })),
-        date:          req.date,
-        startTime:     req.startTime,
-        endTime:       req.endTime         || '',
-        duration:      req.serviceDuration || req.duration || 0,
-        price:         req.servicePrice    || req.price    || 0,
-        status:        'scheduled',
-        source:        'online_booking',
-        notes:         req.notes           || '',
-        createdAt:     serverTimestamp(),
-      });
-
-      await updateDoc(reqRef, {
-        status:     'approved',
-        customerId,
-        updatedAt:  serverTimestamp(),
-      });
+      await updateDoc(slotRef, { customerId });
+      await updateDoc(reqRef, { customerId });
 
       setRequests((prev) => prev.filter((r) => r.id !== req.id));
       showToast(
         isNew
-          ? `✅ התור אושר ולקוחה חדשה נוצרה אוטומטית (${req.guestName})!`
+          ? `✅ התור אושר ולקוחה חדשה נוצרה (${req.guestName})!`
           : `✅ התור אושר וקושר ללקוחה הקיימת (${req.guestName})`,
         'success'
       );
     } catch (err) {
       console.error('[BookingRequests] approve step2:', err);
-      // ── Rollback ────────────────────────────────────────────────────
-      try {
-        await updateDoc(reqRef, { status: 'pending', updatedAt: serverTimestamp() });
-      } catch (rbErr) {
-        console.error('[BookingRequests] rollback failed:', rbErr);
-      }
-      showToast('שגיאה באישור התור — הבקשה הוחזרה להמתנה', 'error');
+      showToast('התור נקבע, אך הייתה שגיאה בשיוך הלקוח', 'error');
     } finally {
       setActionLoading(null);
     }

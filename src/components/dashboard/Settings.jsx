@@ -15,16 +15,13 @@ import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import BusinessHoursSettings from './BusinessHoursSettings';
 
-
 const USER_COLLECTIONS = [
   'incomes', 'expenses', 'goals', 'budgets',
   'categories', 'categoryBudgets',
   'transactions', 'appointments', 'services',
 ];
 
-
 const BATCH_SIZE = 499;
-
 
 async function batchDeleteAll(userId) {
   for (const col of USER_COLLECTIONS) {
@@ -39,7 +36,6 @@ async function batchDeleteAll(userId) {
     }
   }
 }
-
 
 function Tab({ active, onClick, icon, label }) {
   return (
@@ -56,7 +52,6 @@ function Tab({ active, onClick, icon, label }) {
     </button>
   );
 }
-
 
 function ToggleSwitch({ enabled, onToggle, loading }) {
   return (
@@ -75,7 +70,6 @@ function ToggleSwitch({ enabled, onToggle, loading }) {
     </button>
   );
 }
-
 
 function BookingLinkCard() {
   const [copied, setCopied] = useState(false);
@@ -172,8 +166,6 @@ function BookingLinkCard() {
   );
 }
 
-
-// ── Settings ───────────────────────────────────────────────────────────────
 export default function Settings() {
   const { showToast } = useToast();
 
@@ -187,14 +179,16 @@ export default function Settings() {
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingToggle,    setSavingToggle]    = useState(false);
 
-  // ✅ שלב 1: state חדשים להודעות
   const [welcomeMessage,      setWelcomeMessage]      = useState('');
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [savingMessages,      setSavingMessages]      = useState(false);
 
+  // ✅ חדש: שם העסק
+  const [businessName,    setBusinessName]    = useState('');
+  const [savingBusiness,  setSavingBusiness]  = useState(false);
+
   const containerRef = useRef(null);
 
-  // ✅ שלב 2: טעינת הודעות ב-useEffect הקיים
   useEffect(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -203,9 +197,10 @@ export default function Settings() {
         const snap = await getDoc(doc(db, 'userSettings', uid));
         if (snap.exists()) {
           setAutoConfirm(snap.data().autoConfirm ?? false);
-          // ✅ טעינת הודעות מ-Firestore
           setWelcomeMessage(snap.data().welcomeMessage ?? '');
           setConfirmationMessage(snap.data().confirmationMessage ?? '');
+          // ✅ טעינת שם העסק
+          setBusinessName(snap.data().businessName ?? '');
         }
       } catch (err) {
         console.error('[Settings] load:', err);
@@ -242,7 +237,6 @@ export default function Settings() {
     }
   };
 
-  // ✅ שלב 3: פונקציית שמירת הודעות
   const handleSaveMessages = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -259,6 +253,26 @@ export default function Settings() {
       showToast('שגיאה בשמירת ההודעות', 'error');
     } finally {
       setSavingMessages(false);
+    }
+  };
+
+  // ✅ פונקציית שמירת שם העסק
+  const handleSaveBusinessName = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    setSavingBusiness(true);
+    try {
+      await setDoc(
+        doc(db, 'userSettings', uid),
+        { businessName: businessName.trim() },
+        { merge: true }
+      );
+      showToast('✅ שם העסק נשמר בהצלחה', 'success');
+    } catch (err) {
+      console.error('[Settings] saveBusinessName:', err);
+      showToast('שגיאה בשמירת שם העסק', 'error');
+    } finally {
+      setSavingBusiness(false);
     }
   };
 
@@ -451,6 +465,49 @@ export default function Settings() {
           {/* ✅ הלינק האישי */}
           <BookingLinkCard />
 
+          {/* ✅ שם העסק */}
+          <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
+                          shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="p-3 bg-pink-50 dark:bg-pink-900/30 rounded-xl shrink-0">
+                <SettingsIcon className="w-6 h-6 text-[#e5007e]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">שם העסק</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  יוצג בראש דף הבוקינג ובאייקון הלינק
+                </p>
+              </div>
+            </div>
+            <input
+              type="text"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              maxLength={50}
+              placeholder="לדוגמה: הסטודיו של מיה 💅"
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200
+                         dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50
+                         text-sm text-gray-800 dark:text-gray-100
+                         focus:outline-none focus:ring-2 focus:ring-[#e5007e]/30 mb-3"
+              dir="rtl"
+            />
+            <button
+              onClick={handleSaveBusinessName}
+              disabled={savingBusiness || !businessName.trim()}
+              className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
+                         py-2.5 rounded-xl font-semibold text-sm
+                         transition-colors disabled:opacity-50
+                         flex items-center justify-center gap-2">
+              {savingBusiness ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white
+                                   border-t-transparent rounded-full animate-spin" />
+                  שומר...
+                </>
+              ) : '💾 שמור שם עסק'}
+            </button>
+          </div>
+
           {/* אישור אוטומטי */}
           <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
                           shadow-sm border border-gray-100 dark:border-gray-700">
@@ -494,11 +551,11 @@ export default function Settings() {
                   />
                 </div>
 
-                <div className={`p-4 rounded-xl border text-sm transition-colors
-                  ${autoConfirm
+                <div className={`p-4 rounded-xl border text-sm transition-colors ${
+                  autoConfirm
                     ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                     : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                  }`}>
+                }`}>
                   <p className={`font-semibold mb-1 ${
                     autoConfirm
                       ? 'text-green-800 dark:text-green-300'
@@ -520,7 +577,7 @@ export default function Settings() {
             )}
           </div>
 
-          {/* ✅ שלב 4: כרטיס הודעות לדף הזמנה אונליין */}
+          {/* הודעות לדף הזמנה */}
           <div className="gsap-card bg-white dark:bg-gray-800 rounded-2xl p-5
                           shadow-sm border border-gray-100 dark:border-gray-700">
             <div className="flex items-start gap-3 mb-5">
@@ -542,7 +599,6 @@ export default function Settings() {
             </div>
 
             <div className="space-y-4">
-              {/* הודעת המתנה */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700
                                    dark:text-gray-300 mb-1.5">
@@ -569,7 +625,6 @@ export default function Settings() {
                 </p>
               </div>
 
-              {/* הודעת אישור אוטומטי */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700
                                    dark:text-gray-300 mb-1.5">
