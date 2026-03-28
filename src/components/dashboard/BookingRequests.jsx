@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
+
 function openWhatsApp(req) {
   const [y, m, d] = req.date.split('-');
   const displayDate = `${d}/${m}/${y}`;
@@ -20,9 +21,15 @@ function openWhatsApp(req) {
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
 }
 
+
 function RequestCard({ req, onApprove, onReject, isProcessing }) {
   const [y, m, d] = req.date.split('-');
   const displayDate = `${d}/${m}/${y}`;
+
+  // ✅ תיקון 1: הצגת מחיר נכון בכרטיס — fallback מ-services[]
+  const displayPrice = Number(req.servicePrice)
+    || Number(req.price)
+    || (req.services || []).reduce((sum, s) => sum + ((Number(s.price) || 0) * (s.qty || 1)), 0);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm
@@ -48,7 +55,7 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
         </div>
         <div className="bg-pink-50 dark:bg-pink-900/30 text-[#e5007e]
                         px-2.5 py-1 rounded-lg text-sm font-bold shrink-0">
-          ₪{Number(req.servicePrice || req.price || 0).toLocaleString('he-IL')}
+          ₪{displayPrice.toLocaleString('he-IL')}
         </div>
       </div>
 
@@ -137,6 +144,7 @@ function RequestCard({ req, onApprove, onReject, isProcessing }) {
   );
 }
 
+
 export default function BookingRequests() {
   const [requests,      setRequests]      = useState([]);
   const [loading,       setLoading]       = useState(true);
@@ -197,25 +205,37 @@ export default function BookingRequests() {
     setActionLoading(req.id);
     const reqRef = doc(db, 'bookingRequests', req.id);
     const uid = auth.currentUser.uid;
-    
+
     const cleanTime = req.startTime.replace(':', '');
     const slotId = `apt_${uid.substring(0, 5)}_${req.date}_${cleanTime}`;
     const slotRef = doc(db, 'appointments', slotId);
 
-    // ── שלב 1: נעילה אטומית ישירות ביומן ─────────────────────────────────────────
+    // ── שלב 1: נעילה אטומית ────────────────────────────────────────────────────
     try {
       await runTransaction(db, async (t) => {
         const snap = await t.get(reqRef);
         if (!snap.exists()) throw new Error('doc_missing');
         if (snap.data().status !== 'pending') throw new Error('not_pending');
-        
+
         const slotSnap = await t.get(slotRef);
         if (slotSnap.exists()) {
           t.update(reqRef, { status: 'rejected', rejectReason: 'double_booking', updatedAt: serverTimestamp() });
           throw new Error('double_booking');
         }
 
-        // ✅ התיקון: שימוש ב-servicePrice ו-serviceDuration למניעת 0₪ ותיקון שירותים
+        // ✅ תיקון 1: fallback מ-services[] אם אין שדה עליון
+        const servicesArray = (req.services || []).map((s) => ({
+          ...s,
+          serviceId: s.serviceId || s.id || 'custom',
+          qty:       s.qty       || 1,
+          color:     s.color     || '#e5007e',
+          price:     Number(s.price)    || 0,
+          duration:  Number(s.duration) || 0,
+        }));
+
+        const fallbackPrice    = servicesArray.reduce((sum, s) => sum + (s.price    * s.qty), 0);
+        const fallbackDuration = servicesArray.reduce((sum, s) => sum + (s.duration * s.qty), 0);
+
         t.set(slotRef, {
           userId:        uid,
           customerId:    'pending_customer',
@@ -224,39 +244,37 @@ export default function BookingRequests() {
           serviceId:     req.serviceId    || '',
           serviceTitle:  req.serviceTitle || req.title || '',
           title:         req.serviceTitle || req.title || '',
-          services: (req.services || []).map((s) => ({
-            ...s, 
-            serviceId: s.serviceId || s.id || 'custom', 
-            qty: s.qty || 1, 
-            color: s.color || '#e5007e', 
-            price: Number(s.price) || 0, 
-            duration: Number(s.duration) || 0
-          })),
-          date:      req.date,
-          startTime: req.startTime,
-          endTime:   req.endTime         || '',
-          duration:  Number(req.serviceDuration) || Number(req.duration) || 0,
-          price:     Number(req.servicePrice)    || Number(req.price)    || 0,
-          status:    'scheduled',
-          source:    'online_booking',
-          notes:     req.notes           || '',
-          createdAt: serverTimestamp(),
+          services:      servicesArray,
+          date:          req.date,
+          startTime:     req.startTime,
+          endTime:       req.endTime         || '',
+          duration:      Number(req.serviceDuration) || Number(req.duration) || fallbackDuration || 0,
+          price:         Number(req.servicePrice)    || Number(req.price)    || fallbackPrice    || 0,
+          status:        'scheduled',
+          source:        'online_booking',
+          notes:         req.notes           || '',
+          createdAt:     serverTimestamp(),
         });
 
         t.update(reqRef, { status: 'approved', updatedAt: serverTimestamp() });
       });
     } catch (lockErr) {
-      if (lockErr.message === 'double_booking') {
-        showToast('השעה הזו כבר נתפסה! הבקשה נדחתה אוטומטית', 'error');
-      } else {
-        showToast('הבקשה כבר בטיפול', 'error');
-      }
       setActionLoading(null);
       setRequests((prev) => prev.filter((r) => r.id !== req.id));
+
+      if (lockErr.message === 'double_booking') {
+        // ✅ תיקון 2: השעה תפוסה — שגיאה ברורה
+        showToast('השעה הזו כבר נתפסה! הבקשה נדחתה אוטומטית', 'error');
+      } else if (lockErr.message === 'not_pending') {
+        // ✅ תיקון 2: Worker כבר טיפל — הסרה שקטה עם toast ידידותי
+        showToast(`התור של ${req.guestName} אושר אוטומטית ✅`, 'success');
+      } else {
+        showToast('שגיאה באישור הבקשה', 'error');
+      }
       return;
     }
 
-    // ── שלב 2: שיוך לקוח ─────────────────────────────────────
+    // ── שלב 2: שיוך לקוח ──────────────────────────────────────────────────────
     try {
       const { customerId, isNew } = await findOrCreateCustomer(req);
 

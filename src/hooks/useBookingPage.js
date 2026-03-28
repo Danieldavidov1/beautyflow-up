@@ -212,6 +212,12 @@ export function useBookingPage(providerId) {
     try {
       const docRef = await addDoc(collection(db, 'bookingRequests'), {
         ...bookingData,
+        
+        // ✅ תוספת קריטית: הזרקה מפורשת של הטיפולים והמחירים לפיירבייס כדי למנוע את ה-0₪!
+        services: bookingData.services || [],
+        servicePrice: Number(bookingData.servicePrice) || Number(bookingData.price) || 0,
+        serviceDuration: Number(bookingData.serviceDuration) || Number(bookingData.duration) || 0,
+        
         ownerUid:  providerId,
         status:    'pending',
         createdAt: serverTimestamp(),

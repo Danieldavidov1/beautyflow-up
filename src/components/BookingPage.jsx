@@ -10,8 +10,10 @@ import {
   ChevronRight, Store, FileText, AlertCircle, Sparkles, Shield, Check,
 } from 'lucide-react';
 
+
 const HE_DAYS_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 const HE_MONTHS     = ['ינו׳','פבר׳','מרץ','אפר׳','מאי','יוני','יולי','אוג׳','ספט׳','אוק׳','נוב׳','דצמ׳'];
+
 
 function getDates(numDays = 21) {
   const today = new Date();
@@ -23,9 +25,11 @@ function getDates(numDays = 21) {
   });
 }
 
+
 function isValidPhone(phone) {
   return /^0[0-9]{1,2}[-\s]?[0-9]{7}$/.test(phone.replace(/\s/g, ''));
 }
+
 
 function StepIndicator({ step }) {
   const steps = ['טיפול', 'מועד', 'פרטים'];
@@ -64,6 +68,7 @@ function StepIndicator({ step }) {
   );
 }
 
+
 function ErrorScreen({ message }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6" dir="rtl">
@@ -79,9 +84,11 @@ function ErrorScreen({ message }) {
   );
 }
 
+
 export default function BookingPage() {
   const { providerId } = useParams();
   const [step, setStep] = useState(1);
+
 
   const {
     providerSettings, services,
@@ -90,6 +97,7 @@ export default function BookingPage() {
     fetchBookedSlots, calculateAvailableSlots,
     submitBookingRequest,
   } = useBookingPage(providerId);
+
 
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedDate,     setSelectedDate]     = useState(toDateStr(new Date()));
@@ -104,7 +112,9 @@ export default function BookingPage() {
   const [phoneTouched,     setPhoneTouched]     = useState(false);
   const [autoConfirmed,    setAutoConfirmed]    = useState(false);
 
+
   const datesList = useMemo(() => getDates(21), []);
+
 
   const totalDuration = useMemo(
     () => selectedServices.reduce((sum, s) => sum + Number(s.duration), 0),
@@ -119,6 +129,7 @@ export default function BookingPage() {
     [selectedServices]
   );
 
+
   const toggleService = (srv) => {
     setSelectedServices((prev) => {
       const exists = prev.find((s) => s.id === srv.id);
@@ -126,6 +137,7 @@ export default function BookingPage() {
       return [...prev, srv];
     });
   };
+
 
   const handleDateChange = useCallback(async (newDate, duration) => {
     setSelectedDate(newDate);
@@ -135,11 +147,13 @@ export default function BookingPage() {
     setAvailableSlots(calculateAvailableSlots(newDate, duration, fresh));
   }, [fetchBookedSlots, calculateAvailableSlots]);
 
+
   useEffect(() => {
     if (step === 2 && totalDuration > 0) {
       handleDateChange(selectedDate, totalDuration);
     }
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const handlePhoneBlur = () => {
     setPhoneTouched(true);
@@ -149,6 +163,7 @@ export default function BookingPage() {
       setPhoneError('');
     }
   };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -175,11 +190,14 @@ export default function BookingPage() {
         serviceTitle:    combinedTitle,
         serviceDuration: totalDuration,
         servicePrice:    totalPrice,
+        // ✅ התיקון הקריטי: אנחנו מוודאים שכל נתוני הטיפול נשלחים בדיוק בפורמט שהיומן מחפש!
         services:        selectedServices.map((s) => ({
           serviceId: s.id,
           title:     s.title,
           price:     Number(s.price),
           duration:  Number(s.duration),
+          color:     s.color || '#e5007e', // חשוב כדי שהיומן יראה את זה יפה
+          qty:       1
         })),
         date:         selectedDate,
         startTime:    selectedTime,
@@ -195,6 +213,7 @@ export default function BookingPage() {
     }
   };
 
+
   if (loadingInitial) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="flex flex-col items-center gap-3">
@@ -205,14 +224,18 @@ export default function BookingPage() {
     </div>
   );
 
+
   if (errorInitial) return <ErrorScreen message={errorInitial} />;
 
+
   const businessName = providerSettings?.businessName || 'קביעת תור';
+
 
   const canSubmit = guestName.trim().length >= 2
     && isValidPhone(guestPhone)
     && isConsentChecked
     && !submitting;
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-purple-50
@@ -220,10 +243,12 @@ export default function BookingPage() {
                     p-0 sm:p-4 font-sans"
          dir="rtl">
 
+
       <div className="w-full max-w-md bg-white flex flex-col
                       min-h-screen sm:min-h-0
                       sm:rounded-3xl sm:shadow-2xl sm:shadow-pink-200/40
                       overflow-hidden relative">
+
 
         {/* ── Header ────────────────────────────────────────────── */}
         <div className="bg-gradient-to-br from-[#e5007e] to-[#b30062]
@@ -258,8 +283,10 @@ export default function BookingPage() {
           {step < 4 && <StepIndicator step={step} />}
         </div>
 
+
         {/* ── תוכן ──────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto bg-gray-50/30">
+
 
           {/* ═══ שלב 1: בחירת שירותים ═══════════════════ */}
           {step === 1 && (
@@ -329,6 +356,7 @@ export default function BookingPage() {
             </div>
           )}
 
+
           {/* ═══ שלב 2: תאריך + שעה ════════════════════════════ */}
           {step === 2 && (
             <div className="flex flex-col relative"
@@ -370,6 +398,7 @@ export default function BookingPage() {
                 </div>
               </div>
 
+
               <div className="flex-1 overflow-y-auto p-4 pb-32">
                 <p className="text-xs font-semibold text-gray-500 mb-3 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-[#e5007e]" /> שעות פנויות
@@ -377,6 +406,7 @@ export default function BookingPage() {
                     <span className="text-[#e5007e] font-bold">({availableSlots.length})</span>
                   )}
                 </p>
+
 
                 {loadingSlots ? (
                   <div className="flex justify-center py-12">
@@ -404,6 +434,7 @@ export default function BookingPage() {
                 )}
               </div>
 
+
               {selectedTime && (
                 <div className="absolute bottom-0 left-0 right-0 p-4
                                 bg-gradient-to-t from-white via-white to-transparent
@@ -424,6 +455,7 @@ export default function BookingPage() {
               )}
             </div>
           )}
+
 
           {/* ═══ שלב 3: פרטי לקוחה ══════════════════════════════ */}
           {step === 3 && (
@@ -473,6 +505,7 @@ export default function BookingPage() {
                 </div>
               </div>
 
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
@@ -488,6 +521,7 @@ export default function BookingPage() {
                                focus:border-[#e5007e] focus:ring-1 focus:ring-[#e5007e]
                                outline-none transition-all text-base" />
                 </div>
+
 
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
@@ -517,6 +551,7 @@ export default function BookingPage() {
                   )}
                 </div>
 
+
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
                     <span className="flex items-center gap-1.5">
@@ -532,6 +567,7 @@ export default function BookingPage() {
                                outline-none transition-all resize-none text-base" />
                   <p className="text-xs text-gray-300 text-left mt-0.5">{notes.length}/300</p>
                 </div>
+
 
                 <div className={`flex items-start gap-3 p-4 rounded-2xl border-2
                                  transition-all cursor-pointer ${
@@ -570,12 +606,14 @@ export default function BookingPage() {
                   </div>
                 </div>
 
+
                 {submitError && (
                   <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
                     <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                     <p className="text-red-600 text-sm">{submitError}</p>
                   </div>
                 )}
+
 
                 <button type="submit" disabled={!canSubmit}
                   className="w-full bg-[#e5007e] hover:bg-[#b30062] text-white
@@ -594,6 +632,7 @@ export default function BookingPage() {
             </div>
           )}
 
+
           {/* ═══ שלב 4: הצלחה ═══════════════════════════════════ */}
           {step === 4 && (
             <div className="flex flex-col items-center justify-center
@@ -603,9 +642,11 @@ export default function BookingPage() {
                 <CheckCircle className="w-12 h-12 text-green-500" />
               </div>
 
+
               <h2 className="text-2xl font-bold text-gray-800 mb-2">
                 {autoConfirmed ? 'התור אושר! 🎉' : 'הבקשה נשלחה! 🎉'}
               </h2>
+
 
               {/* ✅ תיאור עם תאריך + שעה */}
               <p className="text-gray-500 leading-relaxed mb-2">
@@ -626,6 +667,7 @@ export default function BookingPage() {
                 )}
               </p>
 
+
               {/*
                 ✅ תיקון מרכזי:
                   autoConfirmed=true  → confirmationMessage ("מצפות לראות אותך! 💅")
@@ -638,6 +680,7 @@ export default function BookingPage() {
                 }
               </p>
 
+
               {/* כפתור הוספה ליומן */}
               <button
                 onClick={() => {
@@ -647,6 +690,7 @@ export default function BookingPage() {
                   const [hh, mm]  = selectedTime.split(':').map(Number);
                   const dtStart   = `${y}${pad(m)}${pad(d)}T${pad(hh)}${pad(mm)}00`;
                   const dtEnd     = `${y}${pad(m)}${pad(d)}T${pad(Math.floor(endMin / 60))}${pad(endMin % 60)}00`;
+
 
                   const ics = [
                     'BEGIN:VCALENDAR', 'VERSION:2.0',
@@ -660,6 +704,7 @@ export default function BookingPage() {
                     autoConfirmed ? 'STATUS:CONFIRMED' : 'STATUS:TENTATIVE',
                     'END:VEVENT', 'END:VCALENDAR',
                   ].join('\r\n');
+
 
                   const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
                   const url  = URL.createObjectURL(blob);
@@ -675,6 +720,7 @@ export default function BookingPage() {
                 הוסיפי ליומן 📅
               </button>
 
+
               <p className="text-gray-400 text-xs mt-2 underline cursor-pointer
                             hover:text-gray-600 transition-colors"
                  onClick={() => window.location.reload()}>
@@ -683,7 +729,9 @@ export default function BookingPage() {
             </div>
           )}
 
+
         </div>
+
 
         {/* כפתור "המשך" צף בשלב 1 */}
         {step === 1 && selectedServices.length > 0 && (
